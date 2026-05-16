@@ -5,7 +5,7 @@ const cors = require("cors");
 require("dotenv").config();
 
 const db = require("./config/db");
-
+const authRoutes = require("./routes/auth.routes");
 const app = express();
 
 const server = http.createServer(app);
@@ -19,7 +19,7 @@ const io = socketIO(server, {
 
 app.use(cors());
 app.use(express.json());
-
+app.use("/api/auth", authRoutes);
 app.get("/", async (req, res) => {
 
     let mysqlStatus = "OFFLINE";
