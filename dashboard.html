@@ -347,6 +347,7 @@ async function validarPasswordCanal(){
             headers:{ "Content-Type":"application/json" },
             body:JSON.stringify({
                 canal_id: canalSeleccionado.id,
+                usuario_id: usuario.id,
                 password_canal
             })
         });

@@ -44,11 +44,20 @@ button.gray{background:#475569}
 .msg{margin:14px 0;color:#5CF2D6;font-weight:bold;white-space:pre-wrap}
 .error{color:#fb7185}
 .empty{color:#94a3b8;padding:12px 0}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99;align-items:center;justify-content:center;padding:18px}
+.modal{width:100%;max-width:820px;max-height:88vh;overflow:auto;background:linear-gradient(180deg,rgba(16,28,49,.98),rgba(5,13,28,.98));border:1px solid rgba(92,242,214,.35);border-radius:24px;padding:24px;box-shadow:0 24px 80px rgba(0,0,0,.65)}
+.modal h2{margin-bottom:8px}
+.modal p{color:#94a3b8;margin-bottom:14px}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+select{width:100%;padding:12px;border-radius:12px;border:1px solid rgba(148,163,184,.30);background:#0f172a;color:white}
+.member-item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px;border-bottom:1px solid rgba(148,163,184,.16)}
+.member-item small{color:#94a3b8}
 @media(max-width:700px){
     body{padding:14px}
     .header{flex-direction:column;text-align:center}
     .admin-user{text-align:center}
     .logo h1{font-size:24px}
+    .modal-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -93,8 +102,35 @@ button.gray{background:#475569}
     </div>
 </div>
 
+<div id="modalMiembros" class="modal-bg">
+    <div class="modal">
+        <h2 id="modalTitulo">Miembros del canal</h2>
+        <p>Agrega o quita usuarios autorizados para este canal.</p>
+
+        <div class="modal-grid">
+            <div>
+                <h3>Agregar usuario</h3><br>
+                <select id="selectUsuarios"></select><br><br>
+                <button class="primary" onclick="agregarMiembro()">Agregar al canal</button>
+            </div>
+
+            <div>
+                <h3>Miembros actuales</h3>
+                <div id="listaMiembros"></div>
+            </div>
+        </div>
+
+        <br>
+        <button class="gray" onclick="cerrarModalMiembros()">Cerrar</button>
+        <div id="modalMsg" class="msg"></div>
+    </div>
+</div>
+
 <script>
 const API = "https://radiapp-backend.onrender.com";
+
+let canalActualId = null;
+let canalActualNombre = "";
 
 function getToken(){
     return localStorage.getItem("radiapp_token");
@@ -124,6 +160,12 @@ function cerrarSesion(){
 
 function mensaje(texto, error=false){
     const el = document.getElementById("mensaje");
+    el.className = error ? "msg error" : "msg";
+    el.innerText = texto || "";
+}
+
+function mensajeModal(texto, error=false){
+    const el = document.getElementById("modalMsg");
     el.className = error ? "msg error" : "msg";
     el.innerText = texto || "";
 }
@@ -194,6 +236,16 @@ async function apiPut(ruta, body=null){
     }
 
     return json;
+}
+
+async function apiPost(ruta, body=null){
+    const res = await fetch(API + ruta, {
+        method:"POST",
+        headers: headers(),
+        body: body ? JSON.stringify(body) : null
+    });
+
+    return await res.json();
 }
 
 function tablaUsuarios(usuarios, tipo){
@@ -286,12 +338,12 @@ function tablaCanales(canales){
                 <td>${escapeHtml(c.creado_por || "")}</td>
                 <td>
                     <div class="actions">
+                        <button class="blue" onclick="abrirMiembros(${c.id}, '${escapeAttr(c.nombre_canal || "")}')">Miembros</button>
+
                         ${visible
                             ? `<button class="gray" onclick="cambiarVisibilidad(${c.id},0)">Ocultar público</button>`
                             : `<button class="primary" onclick="cambiarVisibilidad(${c.id},1)">Hacer público</button>`
                         }
-
-                        <button class="blue" onclick="gestionarMiembros(${c.id}, '${"${escapeHtml(c.nombre_canal || "")}"}')">Miembros</button>
 
                         ${activo
                             ? `<button class="danger" onclick="desactivarCanal(${c.id})">Desactivar</button>`
@@ -328,6 +380,98 @@ async function cargarTodo(){
 
     }catch(error){
         mensaje("No se pudo cargar el panel admin.", true);
+    }
+}
+
+async function abrirMiembros(canalId, nombreCanal){
+    canalActualId = canalId;
+    canalActualNombre = nombreCanal;
+
+    document.getElementById("modalTitulo").innerText = "Miembros: " + nombreCanal;
+    document.getElementById("modalMiembros").style.display = "flex";
+    mensajeModal("Cargando miembros...");
+
+    await cargarMiembros();
+}
+
+function cerrarModalMiembros(){
+    document.getElementById("modalMiembros").style.display = "none";
+    canalActualId = null;
+    canalActualNombre = "";
+}
+
+async function cargarMiembros(){
+    try{
+        const usuarios = await apiGet("/api/admin/usuarios");
+        const miembros = await apiGet("/api/admin/canales/" + canalActualId + "/miembros");
+
+        const idsMiembros = miembros.miembros.map(m => Number(m.usuario_id));
+
+        let selectHtml = `<option value="">Selecciona usuario...</option>`;
+
+        usuarios.usuarios.forEach(u => {
+            if(!idsMiembros.includes(Number(u.id))){
+                selectHtml += `<option value="${u.id}">${escapeHtml(u.nombre_completo)} - ${escapeHtml(u.correo)}</option>`;
+            }
+        });
+
+        document.getElementById("selectUsuarios").innerHTML = selectHtml;
+
+        if(!miembros.miembros || miembros.miembros.length === 0){
+            document.getElementById("listaMiembros").innerHTML = `<div class="empty">Sin miembros autorizados.</div>`;
+        }else{
+            let html = "";
+            miembros.miembros.forEach(m => {
+                html += `
+                    <div class="member-item">
+                        <div>
+                            <strong>${escapeHtml(m.nombre_completo || "")}</strong><br>
+                            <small>${escapeHtml(m.correo || "")} · ${escapeHtml(m.rol || "miembro")}</small>
+                        </div>
+                        <button class="danger" onclick="quitarMiembro(${m.usuario_id})">Quitar</button>
+                    </div>
+                `;
+            });
+            document.getElementById("listaMiembros").innerHTML = html;
+        }
+
+        mensajeModal("");
+
+    }catch(error){
+        mensajeModal("Error cargando miembros.", true);
+    }
+}
+
+async function agregarMiembro(){
+    const usuarioId = document.getElementById("selectUsuarios").value;
+
+    if(!usuarioId){
+        mensajeModal("Selecciona un usuario.", true);
+        return;
+    }
+
+    const json = await apiPost("/api/admin/canales/" + canalActualId + "/agregar-miembro", {
+        usuario_id: usuarioId
+    });
+
+    if(json.success){
+        mensajeModal("Usuario agregado correctamente.");
+        await cargarMiembros();
+    }else{
+        mensajeModal(json.error || "No se pudo agregar usuario.", true);
+    }
+}
+
+async function quitarMiembro(usuarioId){
+    if(!confirm("¿Seguro que deseas quitar este usuario del canal?")) return;
+
+    const json = await apiPut("/api/admin/canales/" + canalActualId + "/quitar-miembro/" + usuarioId);
+
+    if(json.success){
+        mensajeModal("Usuario removido correctamente.");
+        await cargarMiembros();
+    }else{
+        mensajeModal(json.error || "No se pudo quitar usuario.", true);
     }
 }
 
@@ -388,6 +532,14 @@ function escapeHtml(texto){
         .replaceAll("'","&#039;");
 }
 
+function escapeAttr(texto){
+    return String(texto)
+        .replaceAll("\\","\\\\")
+        .replaceAll("'","\\'")
+        .replaceAll('"',"&quot;")
+        .replaceAll("\n"," ");
+}
+
 (async function iniciar(){
     const ok = await validarAdmin();
     if(ok){
@@ -400,50 +552,5 @@ if("serviceWorker" in navigator){
 }
 </script>
 
-
-<script>
-async function gestionarMiembros(canalId, nombreCanal){
-
-    try{
-
-        const usuariosRes = await apiGet("/api/admin/usuarios");
-        const miembrosRes = await apiGet("/api/admin/canales/" + canalId + "/miembros");
-
-        const miembrosIds = miembrosRes.miembros.map(m => Number(m.usuario_id));
-
-        let lista = "Miembros actuales del canal: " + nombreCanal + "\n\n";
-
-        miembrosRes.miembros.forEach(m => {
-            lista += "- " + m.nombre_completo + " (" + m.correo + ")\n";
-        });
-
-        lista += "\nUsuarios disponibles:\n";
-
-        usuariosRes.usuarios.forEach(u => {
-            if(!miembrosIds.includes(Number(u.id))){
-                lista += u.id + " - " + u.nombre_completo + "\n";
-            }
-        });
-
-        const usuarioId = prompt(lista + "\nEscribe el ID del usuario que deseas agregar:");
-
-        if(!usuarioId) return;
-
-        await fetch(API + "/api/admin/canales/" + canalId + "/agregar-miembro", {
-            method:"POST",
-            headers: headers(),
-            body: JSON.stringify({
-                usuario_id: usuarioId
-            })
-        });
-
-        mensaje("Usuario agregado correctamente.");
-
-    }catch(error){
-        mensaje("Error administrando miembros.", true);
-    }
-}
-</script>
 </body>
-
 </html>
