@@ -3,10 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>RadiApp Radio</title>
-
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
 </head>
+
 <body>
 
 <h1>RadiApp Canal General</h1>
@@ -22,18 +21,12 @@
 <hr>
 
 <button
-    onmousedown="hablar()"
-    onmouseup="dejarHablar()"
-    ontouchstart="hablar()"
-    ontouchend="dejarHablar()"
-    style="
-        width:200px;
-        height:200px;
-        border-radius:100px;
-        font-size:30px;
-        background:red;
-        color:white;
-    "
+    id="btnPTT"
+    onmousedown="iniciarPTT()"
+    onmouseup="detenerPTT()"
+    ontouchstart="iniciarPTT()"
+    ontouchend="detenerPTT()"
+    style="width:200px;height:200px;border-radius:100px;font-size:30px;background:red;color:white;"
 >
 PTT
 </button>
@@ -43,11 +36,13 @@ PTT
 <div id="mensajes"></div>
 
 <script>
-
 const socket = io("https://radiapp-backend.onrender.com");
 
-function conectar() {
+let mediaRecorder = null;
+let stream = null;
+let grabando = false;
 
+function conectar() {
     const usuario = document.getElementById("usuario").value;
     const canal = document.getElementById("canal").value;
 
@@ -56,11 +51,11 @@ function conectar() {
         usuario: usuario
     });
 
-    document.getElementById("estado").innerText =
-        "Conectado al canal " + canal;
+    document.getElementById("estado").innerText = "Conectado al canal " + canal;
 }
 
-function hablar() {
+async function iniciarPTT() {
+    if (grabando) return;
 
     const usuario = document.getElementById("usuario").value;
     const canal = document.getElementById("canal").value;
@@ -69,32 +64,80 @@ function hablar() {
         canal_id: canal,
         usuario: usuario
     });
+
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: "audio/webm"
+        });
+
+        mediaRecorder.ondataavailable = async (event) => {
+            if (event.data.size > 0) {
+                const buffer = await event.data.arrayBuffer();
+                const bytes = new Uint8Array(buffer);
+                let binary = "";
+
+                for (let i = 0; i < bytes.length; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+
+                const base64Audio = btoa(binary);
+
+                socket.emit("audio_chunk", {
+                    canal_id: canal,
+                    usuario: usuario,
+                    audio: base64Audio
+                });
+            }
+        };
+
+        mediaRecorder.start(300);
+        grabando = true;
+
+        document.getElementById("estado").innerText = usuario + " está hablando...";
+
+    } catch (error) {
+        alert("No se pudo activar el micrófono: " + error.message);
+    }
 }
 
-function dejarHablar() {
+function detenerPTT() {
+    if (!grabando) return;
 
     const usuario = document.getElementById("usuario").value;
     const canal = document.getElementById("canal").value;
+
+    if (mediaRecorder) {
+        mediaRecorder.stop();
+    }
+
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+    }
+
+    grabando = false;
 
     socket.emit("ptt_fin", {
         canal_id: canal,
         usuario: usuario
     });
+
+    document.getElementById("estado").innerText = usuario + " dejó de hablar.";
 }
 
 socket.on("mensaje_canal", (data) => {
-
-    document.getElementById("mensajes").innerHTML += `
-        <p>${data.mensaje}</p>
-    `;
+    document.getElementById("mensajes").innerHTML += `<p>${data.mensaje}</p>`;
 });
 
 socket.on("ptt_estado", (data) => {
-
-    document.getElementById("estado").innerText =
-        data.mensaje;
+    document.getElementById("estado").innerText = data.mensaje;
 });
 
+socket.on("audio_chunk", (data) => {
+    const audio = new Audio("data:audio/webm;base64," + data.audio);
+    audio.play();
+});
 </script>
 
 </body>
