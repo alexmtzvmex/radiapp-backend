@@ -132,7 +132,7 @@ async function iniciarPTT(event) {
 
     };
 
-    mediaRecorder.start(300);
+    mediaRecorder.start(1000);
 
     socket.emit("ptt_inicio", {
         canal_id: getCanal(),
@@ -181,19 +181,32 @@ socket.on("ptt_estado", function(data) {
 
 });
 
-socket.on("audio_chunk", function(data) {
+let colaAudio = [];
+let reproduciendo = false;
 
-    const audio = new Audio(
-        "data:audio/webm;base64," + data.audio
-    );
+socket.on("audio_chunk", function(data) {
+    colaAudio.push(data.audio);
+    reproducirCola();
+});
+
+function reproducirCola() {
+    if (reproduciendo || colaAudio.length === 0) return;
+
+    reproduciendo = true;
+
+    const audioBase64 = colaAudio.shift();
+    const audio = new Audio("data:audio/webm;base64," + audioBase64);
+
+    audio.onended = function() {
+        reproduciendo = false;
+        reproducirCola();
+    };
 
     audio.play().catch(function(error) {
-
-        console.log(error);
-
+        reproduciendo = false;
+        mensaje("Audio recibido, pero el navegador bloqueó reproducción. Toca la pantalla y vuelve a probar.");
     });
-
-});
+}
 
 function getUsuario() {
 
