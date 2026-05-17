@@ -49,7 +49,14 @@ app.get("/", async (req, res) => {
 
 io.on("connection", (socket) => {
     console.log("Usuario conectado:", socket.id);
+socket.on("audio_completo", (data) => {
+    const canalId = data.canal_id;
 
+    socket.to("canal_" + canalId).emit("audio_completo", {
+        audio: data.audio,
+        usuario: data.usuario
+    });
+});
     socket.on("entrar_canal", (data) => {
         const canalId = data.canal_id;
         const usuario = data.usuario || "Usuario";
