@@ -115,7 +115,14 @@ socket.on("webrtc_ice_candidate", (data) => {
             usuario: data.usuario
         });
     });
-
+socket.on("webrtc_signal", (data) => {
+    socket.to("canal_" + data.canal_id).emit("webrtc_signal", {
+        from: socket.id,
+        type: data.type,
+        payload: data.payload,
+        usuario: data.usuario
+    });
+});
     socket.on("disconnect", () => {
         console.log("Usuario desconectado:", socket.id);
     });
