@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp Test</title>
+</head>
+<body>
+
+<h1>Registro RadiApp</h1>
+
+<input type="text" id="nombre" placeholder="Nombre">
+<br><br>
+
+<input type="email" id="correo" placeholder="Correo">
+<br><br>
+
+<input type="password" id="password" placeholder="Password">
+<br><br>
+
+<button onclick="registrar()">Registrar</button>
+
+<pre id="resultado"></pre>
+
+<script>
+async function registrar() {
+
+    const datos = {
+        nombre: document.getElementById("nombre").value,
+        correo: document.getElementById("correo").value,
+        password: document.getElementById("password").value
+    };
+
+    const respuesta = await fetch("https://radiapp-backend.onrender.com/api/auth/register", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(datos)
+    });
+
+    const json = await respuesta.json();
+
+    document.getElementById("resultado").innerText =
+        JSON.stringify(json, null, 2);
+}
+</script>
+
+</body>
+</html>
