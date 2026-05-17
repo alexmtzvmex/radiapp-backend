@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp Channels</title>
+</head>
+
+<body>
+
+<h1>Canales RadiApp</h1>
+
+<input type="text" id="nombre_canal" placeholder="Nombre del canal">
+<br><br>
+
+<input type="text" id="descripcion" placeholder="Descripción">
+<br><br>
+
+<input type="number" id="creado_por" placeholder="ID usuario creador">
+<br><br>
+
+<button onclick="crearCanal()">Crear canal</button>
+
+<hr>
+
+<button onclick="listarCanales()">Actualizar canales</button>
+
+<div id="canales"></div>
+
+<pre id="resultado"></pre>
+
+<script>
+
+const API = "https://radiapp-backend.onrender.com";
+
+async function crearCanal() {
+
+    const datos = {
+        nombre_canal: document.getElementById("nombre_canal").value,
+        descripcion: document.getElementById("descripcion").value,
+        creado_por: document.getElementById("creado_por").value
+    };
+
+    const respuesta = await fetch(API + "/api/channels/crear", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(datos)
+    });
+
+    const json = await respuesta.json();
+
+    document.getElementById("resultado").innerText =
+        JSON.stringify(json, null, 2);
+
+    listarCanales();
+}
+
+async function listarCanales() {
+
+    const respuesta = await fetch(API + "/api/channels/listar");
+
+    const json = await respuesta.json();
+
+    const contenedor = document.getElementById("canales");
+
+    contenedor.innerHTML = "";
+
+    json.canales.forEach(canal => {
+
+        const div = document.createElement("div");
+
+        div.innerHTML = `
+            <hr>
+            <h3>${canal.nombre_canal}</h3>
+            <p>${canal.descripcion || ""}</p>
+            <p><b>Creador:</b> ${canal.creado_por}</p>
+        `;
+
+        contenedor.appendChild(div);
+    });
+}
+
+listarCanales();
+
+</script>
+
+</body>
+</html>
