@@ -2,161 +2,231 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>RadiApp Login</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>RadiApp Login</title>
+
 <link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/png" href="icon.png">
-<meta name="theme-color" content="#0f172a">
 
 <style>
-body{
+
+*{
     margin:0;
-    background:#0b1120;
-    color:white;
+    padding:0;
+    box-sizing:border-box;
     font-family:Arial, Helvetica, sans-serif;
 }
-.header{
-    text-align:center;
-    padding:30px 15px;
-    font-size:36px;
-    font-weight:bold;
-}
-.card{
-    max-width:420px;
-    margin:20px auto;
-    background:#111827;
-    border:1px solid #334155;
-    border-radius:20px;
-    padding:25px;
-}
-input{
-    width:100%;
-    padding:15px;
-    margin-top:12px;
-    border:none;
-    border-radius:12px;
-    background:#1e293b;
+
+body{
+    background:#020817;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    overflow:hidden;
+    position:relative;
     color:white;
-    font-size:16px;
-    box-sizing:border-box;
 }
-button{
+
+/* Fondo animado */
+
+body::before{
+    content:"";
+    position:absolute;
+    width:200%;
+    height:200%;
+    background:
+    radial-gradient(circle at center,
+    rgba(0,255,200,0.10) 0%,
+    transparent 40%);
+    animation:moveBg 10s linear infinite;
+}
+
+@keyframes moveBg{
+    0%{
+        transform:translate(-25%,-25%) rotate(0deg);
+    }
+    100%{
+        transform:translate(-25%,-25%) rotate(360deg);
+    }
+}
+
+.container{
     width:100%;
-    padding:15px;
-    margin-top:15px;
-    border:none;
-    border-radius:12px;
-    background:#2563eb;
-    color:white;
-    font-size:17px;
-    font-weight:bold;
+    max-width:450px;
+    padding:20px;
+    position:relative;
+    z-index:2;
 }
-button.secondary{
-    background:#475569;
-}
-.msg{
-    margin-top:15px;
-    color:#93c5fd;
-    white-space:pre-wrap;
-}
+
 .logo{
-    width:70px;
-    vertical-align:middle;
-    margin-right:10px;
+    text-align:center;
+    margin-bottom:25px;
 }
+
+.logo img{
+    width:280px;
+    max-width:90%;
+}
+
+.card{
+    background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:25px;
+    padding:35px;
+    backdrop-filter:blur(15px);
+    box-shadow:0 0 40px rgba(0,255,200,0.08);
+}
+
+.card h1{
+    text-align:center;
+    margin-bottom:30px;
+    font-size:42px;
+    font-weight:bold;
+}
+
+.line{
+    width:60px;
+    height:4px;
+    background:#5CF2D6;
+    margin:12px auto 30px;
+    border-radius:10px;
+}
+
+.input-group{
+    margin-bottom:20px;
+    position:relative;
+}
+
+.input-group input{
+    width:100%;
+    padding:18px 20px;
+    border:none;
+    border-radius:15px;
+    background:rgba(255,255,255,0.05);
+    color:white;
+    font-size:18px;
+    outline:none;
+    border:1px solid rgba(255,255,255,0.08);
+}
+
+.input-group input::placeholder{
+    color:#8c8c8c;
+}
+
+.btn{
+    width:100%;
+    padding:18px;
+    border:none;
+    border-radius:15px;
+    background:linear-gradient(90deg,#5CF2D6,#7DE2D1);
+    color:#03111f;
+    font-size:22px;
+    font-weight:bold;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+.btn:hover{
+    transform:scale(1.02);
+}
+
+.separator{
+    display:flex;
+    align-items:center;
+    margin:25px 0;
+    color:#777;
+}
+
+.separator::before,
+.separator::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:#333;
+}
+
+.separator span{
+    margin:0 10px;
+}
+
+.links{
+    text-align:center;
+    line-height:35px;
+    font-size:18px;
+}
+
+.links a{
+    color:#5CF2D6;
+    text-decoration:none;
+}
+
+.links a:hover{
+    text-decoration:underline;
+}
+
+@media(max-width:500px){
+
+    .card{
+        padding:25px;
+    }
+
+    .card h1{
+        font-size:34px;
+    }
+
+}
+
 </style>
 </head>
 
 <body>
 
-<div class="header">
-    <img src="icon.png" class="logo">
-    RadiApp
+<div class="container">
+
+    <div class="logo">
+        <img src="logo_radiapp.png">
+    </div>
+
+    <div class="card">
+
+        <h1>Iniciar sesión</h1>
+
+        <div class="line"></div>
+
+        <div class="input-group">
+            <input type="email" placeholder="Correo">
+        </div>
+
+        <div class="input-group">
+            <input type="password" placeholder="Contraseña">
+        </div>
+
+        <button class="btn">
+            Entrar
+        </button>
+
+        <div class="separator">
+            <span>o</span>
+        </div>
+
+        <div class="links">
+            ¿Olvidaste tu contraseña?
+            <a href="#">
+                Haz click aquí
+            </a>
+
+            <br>
+
+            ¿No tienes cuenta?
+            <a href="#">
+                Solicítala aquí
+            </a>
+        </div>
+
+    </div>
+
 </div>
-
-<div class="card">
-
-    <h2>Iniciar sesión</h2>
-
-    <input id="login_correo" type="email" placeholder="Correo">
-    <input id="login_password" type="password" placeholder="Contraseña">
-
-    <button onclick="login()">Entrar</button>
-
-    <hr style="border-color:#334155;margin:25px 0;">
-
-    <h2>Solicitar registro</h2>
-
-    <input id="reg_nombre" placeholder="Nombre completo">
-    <input id="reg_correo" type="email" placeholder="Correo">
-    <input id="reg_password" type="password" placeholder="Contraseña">
-
-    <button class="secondary" onclick="registrar()">Enviar solicitud</button>
-
-    <div id="mensaje" class="msg"></div>
-
-</div>
-
-<script>
-const API = "https://radiapp-backend.onrender.com";
-
-async function login() {
-    const datos = {
-        correo: document.getElementById("login_correo").value,
-        password: document.getElementById("login_password").value
-    };
-
-    const res = await fetch(API + "/api/auth/login", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(datos)
-    });
-
-    const json = await res.json();
-
-    if (json.success) {
-        localStorage.setItem("radiapp_token", json.token);
-        localStorage.setItem("radiapp_user", JSON.stringify(json.usuario));
-
-        document.getElementById("mensaje").innerText =
-            "Login correcto. Entrando al dashboard...";
-
-        setTimeout(() => {
-            window.location.href = "dashboard.html";
-        }, 800);
-    } else {
-        document.getElementById("mensaje").innerText =
-            json.error || "No se pudo iniciar sesión";
-    }
-}
-
-async function registrar() {
-    const datos = {
-        nombre_completo: document.getElementById("reg_nombre").value,
-        correo: document.getElementById("reg_correo").value,
-        password: document.getElementById("reg_password").value
-    };
-
-    const res = await fetch(API + "/api/auth/register", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify(datos)
-    });
-
-    const json = await res.json();
-
-    document.getElementById("mensaje").innerText =
-        json.message || json.error || "Solicitud enviada";
-}
-
-if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js");
-}
-</script>
 
 </body>
 </html>
