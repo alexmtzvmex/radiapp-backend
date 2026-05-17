@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp WebRTC</title>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+</head>
+<body>
+
+<h1>RadiApp WebRTC</h1>
+
+<input type="text" id="usuario" placeholder="Tu nombre">
+<br><br>
+
+<input type="number" id="canal" value="1">
+<br><br>
+
+<button onclick="activarMicrofono()">
+1. Activar micrófono
+</button>
+
+<button onclick="entrarCanal()">
+2. Entrar al canal
+</button>
+
+<hr>
+
+<button
+id="btnPTT"
+style="
+width:220px;
+height:220px;
+border-radius:110px;
+background:red;
+color:white;
+font-size:42px;
+"
+>
+PTT
+</button>
+
+<h2 id="estado">Desconectado</h2>
+
+<script>
+
+const socket = io("https://radiapp-backend.onrender.com");
+
+let localStream = null;
+let peerConnection = null;
+
+const btnPTT = document.getElementById("btnPTT");
+
+const rtcConfig = {
+    iceServers: [
+        {
+            urls: "stun:stun.l.google.com:19302"
+        }
+    ]
+};
+
+btnPTT.addEventListener("pointerdown", iniciarHablar);
+btnPTT.addEventListener("pointerup", detenerHablar);
+
+async function activarMicrofono() {
+
+    try {
+
+        localStream =
+            await navigator.mediaDevices.getUserMedia({
+                audio: true
+            });
+
+        estado("Micrófono activado");
+
+    } catch(error) {
+
+        alert(error.message);
+
+    }
+
+}
+
+function entrarCanal() {
+
+    socket.emit("entrar_canal", {
+        canal_id: getCanal(),
+        usuario: getUsuario()
+    });
+
+    estado("Conectado canal " + getCanal());
+
+}
+
+async function iniciarHablar() {
+
+    btnPTT.style.background = "green";
+
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, localStream);
+    });
+
+    peerConnection.onicecandidate = (event) => {
+
+        if(event.candidate) {
+
+            socket.emit("webrtc_ice_candidate", {
+                canal_id: getCanal(),
+                candidate: event.candidate,
+                usuario: getUsuario()
+            });
+
+        }
+
+    };
+
+    const offer = await peerConnection.createOffer();
+
+    await peerConnection.setLocalDescription(offer);
+
+    socket.emit("webrtc_offer", {
+        canal_id: getCanal(),
+        offer: offer,
+        usuario: getUsuario()
+    });
+
+    estado(getUsuario() + " hablando...");
+
+}
+
+function detenerHablar() {
+
+    btnPTT.style.background = "red";
+
+    if(peerConnection) {
+
+        peerConnection.close();
+
+        peerConnection = null;
+
+    }
+
+    estado(getUsuario() + " dejó de hablar");
+
+}
+
+socket.on("webrtc_offer", async (data) => {
+
+    peerConnection = new RTCPeerConnection(rtcConfig);
+
+    peerConnection.ontrack = (event) => {
+
+        const audio = new Audio();
+
+        audio.srcObject = event.streams[0];
+
+        audio.play();
+
+    };
+
+    peerConnection.onicecandidate = (event) => {
+
+        if(event.candidate) {
+
+            socket.emit("webrtc_ice_candidate", {
+                canal_id: getCanal(),
+                candidate: event.candidate,
+                usuario: getUsuario()
+            });
+
+        }
+
+    };
+
+    await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(data.offer)
+    );
+
+    const answer = await peerConnection.createAnswer();
+
+    await peerConnection.setLocalDescription(answer);
+
+    socket.emit("webrtc_answer", {
+        canal_id: getCanal(),
+        answer: answer,
+        usuario: getUsuario()
+    });
+
+});
+
+socket.on("webrtc_answer", async (data) => {
+
+    if(peerConnection) {
+
+        await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+        );
+
+    }
+
+});
+
+socket.on("webrtc_ice_candidate", async (data) => {
+
+    try {
+
+        if(peerConnection) {
+
+            await peerConnection.addIceCandidate(
+                new RTCIceCandidate(data.candidate)
+            );
+
+        }
+
+    } catch(error) {
+
+        console.log(error);
+
+    }
+
+});
+
+function getUsuario() {
+
+    return document.getElementById("usuario").value || "Usuario";
+
+}
+
+function getCanal() {
+
+    return document.getElementById("canal").value || "1";
+
+}
+
+function estado(texto) {
+
+    document.getElementById("estado").innerText = texto;
+
+}
+
+</script>
+
+</body>
+</html>
