@@ -5,25 +5,19 @@
 <title>RadiApp Radio</title>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
-
 <body>
 
 <h1>RadiApp Canal General</h1>
 
-<input type="text" id="usuario" placeholder="Tu nombre">
-<br><br>
-
-<input type="number" id="canal" value="1">
-<br><br>
+<input type="text" id="usuario" placeholder="Tu nombre"><br><br>
+<input type="number" id="canal" value="1"><br><br>
 
 <button onclick="activarMicrofono()">1. Activar micrófono</button>
-<button onclick="activarAudio()">2. Activar audio</button>
-<button onclick="conectar()">3. Entrar al canal</button>
+<button onclick="conectar()">2. Entrar al canal</button>
 
 <hr>
 
 <button
-    id="btnPTT"
     onmousedown="iniciarPTT(event)"
     onmouseup="detenerPTT(event)"
     ontouchstart="iniciarPTT(event)"
@@ -34,43 +28,35 @@ PTT
 </button>
 
 <h2 id="estado">Desconectado</h2>
-
 <div id="mensajes"></div>
 
 <script>
 const socket = io("https://radiapp-backend.onrender.com");
 
-let mediaRecorder = null;
 let stream = null;
+let mediaRecorder = null;
+let audioChunks = [];
 let grabando = false;
-let audioActivo = false;
 
 async function activarMicrofono() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        document.getElementById("estado").innerText = "Micrófono activado correctamente";
+        estado("Micrófono activado");
     } catch (error) {
-        alert("No se pudo activar el micrófono: " + error.message);
+        alert("Error micrófono: " + error.message);
     }
 }
 
-function activarAudio() {
-    audioActivo = true;
-    const audio = new Audio();
-    audio.play().catch(() => {});
-    document.getElementById("estado").innerText = "Audio activado";
-}
-
 function conectar() {
-    const usuario = document.getElementById("usuario").value || "Usuario";
-    const canal = document.getElementById("canal").value || "1";
+    const usuario = getUsuario();
+    const canal = getCanal();
 
     socket.emit("entrar_canal", {
         canal_id: canal,
         usuario: usuario
     });
 
-    document.getElementById("estado").innerText = "Conectado al canal " + canal;
+    estado("Conectado al canal " + canal);
 }
 
 async function iniciarPTT(event) {
@@ -78,92 +64,107 @@ async function iniciarPTT(event) {
 
     if (grabando) return;
 
-    const usuario = document.getElementById("usuario").value || "Usuario";
-    const canal = document.getElementById("canal").value || "1";
-
     if (!stream) {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        } catch (error) {
-            alert("No se pudo activar el micrófono: " + error.message);
-            return;
-        }
+        await activarMicrofono();
     }
 
-    socket.emit("ptt_inicio", {
-        canal_id: canal,
-        usuario: usuario
-    });
+    audioChunks = [];
 
     mediaRecorder = new MediaRecorder(stream);
 
-    mediaRecorder.ondataavailable = async (event) => {
+    mediaRecorder.ondataavailable = function(event) {
         if (event.data.size > 0) {
-            const reader = new FileReader();
-
-            reader.onloadend = function() {
-                const base64Audio = reader.result.split(",")[1];
-
-                socket.emit("audio_chunk", {
-                    canal_id: canal,
-                    usuario: usuario,
-                    audio: base64Audio
-                });
-            };
-
-            reader.readAsDataURL(event.data);
+            audioChunks.push(event.data);
         }
     };
 
-    mediaRecorder.start(500);
+    mediaRecorder.onstop = async function() {
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+
+        const reader = new FileReader();
+
+        reader.onloadend = function() {
+            const base64Audio = reader.result.split(",")[1];
+
+            socket.emit("audio_completo", {
+                canal_id: getCanal(),
+                usuario: getUsuario(),
+                audio: base64Audio
+            });
+
+            mensaje("Audio enviado por " + getUsuario());
+        };
+
+        reader.readAsDataURL(audioBlob);
+    };
+
+    mediaRecorder.start();
     grabando = true;
 
-    document.getElementById("estado").innerText = usuario + " está hablando...";
+    socket.emit("ptt_inicio", {
+        canal_id: getCanal(),
+        usuario: getUsuario()
+    });
+
+    estado(getUsuario() + " está hablando...");
 }
 
 function detenerPTT(event) {
-    if (event) event.preventDefault();
+    event.preventDefault();
 
     if (!grabando) return;
 
-    const usuario = document.getElementById("usuario").value || "Usuario";
-    const canal = document.getElementById("canal").value || "1";
+    grabando = false;
 
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
     }
 
-    grabando = false;
-
     socket.emit("ptt_fin", {
-        canal_id: canal,
-        usuario: usuario
+        canal_id: getCanal(),
+        usuario: getUsuario()
     });
 
-    document.getElementById("estado").innerText = usuario + " dejó de hablar.";
+    estado(getUsuario() + " dejó de hablar.");
 }
 
-socket.on("mensaje_canal", (data) => {
-    document.getElementById("mensajes").innerHTML += `<p>${data.mensaje}</p>`;
+socket.on("mensaje_canal", function(data) {
+    mensaje(data.mensaje);
 });
 
-socket.on("ptt_estado", (data) => {
-    document.getElementById("estado").innerText = data.mensaje;
+socket.on("ptt_estado", function(data) {
+    estado(data.mensaje);
 });
 
-socket.on("audio_chunk", (data) => {
-    if (!audioActivo) {
-        document.getElementById("mensajes").innerHTML +=
-            `<p>Audio recibido de ${data.usuario}, pero debes presionar "Activar audio".</p>`;
-        return;
-    }
+socket.on("audio_completo", function(data) {
+    mensaje("Audio recibido de " + data.usuario);
 
     const audio = new Audio("data:audio/webm;base64," + data.audio);
-    audio.play().catch(error => {
-        document.getElementById("mensajes").innerHTML +=
-            `<p>Error reproduciendo audio: ${error.message}</p>`;
+    audio.controls = true;
+    audio.autoplay = true;
+
+    document.getElementById("mensajes").appendChild(audio);
+
+    audio.play().catch(function(error) {
+        mensaje("Presiona PLAY en el audio recibido. Error autoplay: " + error.message);
     });
 });
+
+function getUsuario() {
+    return document.getElementById("usuario").value || "Usuario";
+}
+
+function getCanal() {
+    return document.getElementById("canal").value || "1";
+}
+
+function estado(texto) {
+    document.getElementById("estado").innerText = texto;
+}
+
+function mensaje(texto) {
+    document.getElementById("mensajes").innerHTML += "<p>" + texto + "</p>";
+}
 </script>
 
 </body>
