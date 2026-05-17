@@ -52,18 +52,23 @@ io.on("connection", (socket) => {
     
     console.log("Usuario conectado:", socket.id);
 
-    socket.on("entrar_canal", (data) => {
-        const canalId = data.canal_id || "1";
-        const usuario = data.usuario || "Usuario";
+socket.on("entrar_canal", (data) => {
+    const canalId = data.canal_id || "1";
+    const usuario = data.usuario || "Usuario";
 
-        socket.join("canal_" + canalId);
-        socket.data.canalId = canalId;
-        socket.data.usuario = usuario;
+    socket.join("canal_" + canalId);
+    socket.data.canalId = canalId;
+    socket.data.usuario = usuario;
 
-        io.to("canal_" + canalId).emit("mensaje_canal", {
-            mensaje: usuario + " entró al canal " + canalId
-        });
+    socket.to("canal_" + canalId).emit("usuario_entro", {
+        usuario: usuario,
+        canal_id: canalId
     });
+
+    io.to("canal_" + canalId).emit("mensaje_canal", {
+        mensaje: usuario + " entró al canal " + canalId
+    });
+});
 
     socket.on("ptt_inicio", (data) => {
 socket.on("webrtc_offer", (data) => {
