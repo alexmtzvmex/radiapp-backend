@@ -75,6 +75,32 @@ body::before{
 .online-name{font-weight:850;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .online-state{font-size:11px;color:#5eead4;font-weight:900;white-space:nowrap;}
 .online-state.talking{color:#fb7185;}
+.role-badge{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    margin-left:8px;
+    padding:3px 7px;
+    border-radius:999px;
+    font-size:10px;
+    font-weight:900;
+    letter-spacing:.03em;
+}
+.role-admin{
+    background:rgba(239,68,68,.18);
+    color:#fca5a5;
+    border:1px solid rgba(239,68,68,.24);
+}
+.role-supervisor{
+    background:rgba(249,115,22,.18);
+    color:#fdba74;
+    border:1px solid rgba(249,115,22,.24);
+}
+.role-usuario{
+    background:rgba(92,242,214,.12);
+    color:#5CF2D6;
+    border:1px solid rgba(92,242,214,.20);
+}
 .ptt-card{padding:26px 16px 22px;text-align:center;}
 .ptt-wrap{display:flex;justify-content:center;align-items:center;min-height:250px;}
 #ptt{width:210px;height:210px;border-radius:50%;border:5px solid rgba(255,255,255,.10);background:var(--red);color:white;font-size:39px;font-weight:950;letter-spacing:.5px;cursor:pointer;box-shadow:0 0 42px rgba(239,43,45,.45), inset 0 2px 0 rgba(255,255,255,.20);touch-action:none;user-select:none;transition:.15s ease;}
@@ -212,9 +238,8 @@ let watchdogTimer = null;
 let ultimoRejoin = 0;
 let autoReintentos = 0;
 let audioCtx = null;
-let heartbeatTimer = null;
-let pttKeepaliveTimer = null;
-let ultimoHeartbeat = 0;
+let prioridadUsuario = 0;
+let rolUsuario = "usuario";
 
 const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const btn = document.getElementById("ptt");
@@ -257,26 +282,6 @@ socket.io.on("reconnect", () => {
     playTone("connect");
 });
 
-socket.on("heartbeat_ack", (data) => {
-    ultimoHeartbeat = Date.now();
-});
-
-socket.on("ptt_warning", (data) => {
-    playTone("busy");
-    log(data.mensaje || "Advertencia de tiempo de transmisión.");
-});
-
-socket.on("ptt_interrumpido", (data) => {
-    if(pttActivo){
-        detenerPTTKeepalive();
-        setMic(false);
-    }
-
-    playTone("busy");
-    estado("Transmisión interrumpida", "busy");
-    log(data.mensaje || "Tu transmisión fue interrumpida.");
-});
-
 async function conectarRadio(){
     try{
         prepararAudio();
@@ -285,7 +290,6 @@ async function conectarRadio(){
         connectBtn.classList.add("hidden");
         radioConectada = true;
         iniciarWatchdog();
-        iniciarHeartbeat();
         playTone("connect");
     }catch(error){
         alert("No se pudo conectar la radio: " + error.message);
@@ -320,7 +324,12 @@ async function entrar(){
 }
 
 function emitirEntradaCanal(){
-    socket.emit("entrar_canal", { canal_id: canal, usuario: getUsuario() });
+    socket.emit("entrar_canal", {
+        canal_id: canal,
+        usuario: getUsuario(),
+        rol: rolUsuario,
+        prioridad: prioridadUsuario
+    });
 }
 
 async function crearPC(){
@@ -501,14 +510,12 @@ function setMic(active){
     btn.classList.toggle("talking", active);
     playTone(active ? "tx" : "rx");
 
-    socket.emit(active ? "ptt_inicio" : "ptt_fin", { canal_id: canal, usuario: getUsuario() });
-
-    if(active){
-        iniciarPTTKeepalive();
-    }else{
-        detenerPTTKeepalive();
-    }
-
+    socket.emit(active ? "ptt_inicio" : "ptt_fin", {
+        canal_id: canal,
+        usuario: getUsuario(),
+        rol: rolUsuario,
+        prioridad: prioridadUsuario
+    });
     estado(active ? getUsuario() + " hablando..." : "Canal libre", active ? "tx" : "free");
 }
 
@@ -556,13 +563,19 @@ function renderUsuariosOnline(usuarios){
     usuarios.forEach((u) => {
         const hablando = !!u.hablando;
         const nombre = u.usuario || "Usuario";
+        const rol = String(u.rol || "usuario").toLowerCase();
         const div = document.createElement("div");
         div.className = "online-user";
         div.innerHTML = `
             <div class="online-left">
                 <span class="dot ${hablando ? "talking" : ""}"></span>
                 <span class="avatar"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 21c1.4-4 4.2-6 8-6s6.6 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-                <span class="online-name">${escapeHtml(nombre)}</span>
+                <span class="online-name">
+                    ${escapeHtml(nombre)}
+                    <span class="role-badge role-${rol}">
+                        ${escapeHtml(rol.toUpperCase())}
+                    </span>
+                </span>
             </div>
             <span class="online-state ${hablando ? "talking" : ""}">${hablando ? "HABLANDO" : "ONLINE"}</span>`;
         contenedor.appendChild(div);
@@ -577,8 +590,24 @@ function initPantalla(){
     try{ user = JSON.parse(userData); }catch(e){}
 
     const nombreUsuario = user.nombre || user.correo || "Usuario";
+
+    rolUsuario = String(user.rol || "usuario").toLowerCase();
+
+    if(rolUsuario === "admin"){
+        prioridadUsuario = 100;
+    }else if(rolUsuario === "supervisor"){
+        prioridadUsuario = 50;
+    }else{
+        prioridadUsuario = 10;
+    }
+
     document.getElementById("usuario").value = nombreUsuario;
-    document.getElementById("usuarioSesion").innerText = nombreUsuario;
+
+    document.getElementById("usuarioSesion").innerHTML =
+        escapeHtml(nombreUsuario) +
+        ' <span class="role-badge role-' + rolUsuario + '">' +
+        escapeHtml(rolUsuario.toUpperCase()) +
+        '</span>';
 
     const params = new URLSearchParams(window.location.search);
     const canalUrl = params.get("canal_id");
@@ -778,85 +807,11 @@ function playTone(tipo){
 }
 
 
-
-
-function iniciarHeartbeat(){
-    detenerHeartbeat();
-
-    ultimoHeartbeat = Date.now();
-
-    heartbeatTimer = setInterval(() => {
-
-        if(!radioConectada || !socket.connected) return;
-
-        socket.emit("heartbeat", {
-            canal_id: canal,
-            usuario: getUsuario(),
-            timestamp: Date.now()
-        });
-
-        const diff = Date.now() - ultimoHeartbeat;
-
-        if(diff > 60000){
-            log("Heartbeat vencido. Intentando recuperar conexión...");
-            setMiniEstado("socketEstado", "Heartbeat perdido", false);
-
-            try{
-                socket.disconnect();
-            }catch(e){}
-
-            setTimeout(() => {
-                try{
-                    socket.connect();
-                    reingresarCanal("heartbeat vencido");
-                }catch(e){}
-            }, 1200);
-        }
-
-    }, 15000);
-}
-
-function detenerHeartbeat(){
-    if(heartbeatTimer){
-        clearInterval(heartbeatTimer);
-        heartbeatTimer = null;
-    }
-}
-
-function iniciarPTTKeepalive(){
-    detenerPTTKeepalive();
-
-    pttKeepaliveTimer = setInterval(() => {
-
-        if(!pttActivo || !socket.connected) return;
-
-        socket.emit("ptt_keepalive", {
-            canal_id: canal,
-            usuario: getUsuario(),
-            timestamp: Date.now()
-        });
-
-    }, 8000);
-}
-
-function detenerPTTKeepalive(){
-    if(pttKeepaliveTimer){
-        clearInterval(pttKeepaliveTimer);
-        pttKeepaliveTimer = null;
-    }
-}
-
 function volverDashboard(){ window.location.href = "dashboard.html"; }
 
 window.addEventListener("beforeunload", () => {
     try{
-        detenerHeartbeat();
-        detenerPTTKeepalive();
-
-        if(pttActivo){
-            socket.emit("ptt_fin", { canal_id: canal, usuario: getUsuario() });
-        }
-
+        if(pttActivo) socket.emit("ptt_fin", { canal_id: canal, usuario: getUsuario() });
         socket.emit("salir_canal");
     }catch(e){}
 });
