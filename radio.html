@@ -139,15 +139,13 @@ socket.on("ptt_estado", function(data) {
 socket.on("audio_completo", function(data) {
     mensaje("Audio recibido de " + data.usuario + " - tamaño: " + data.audio.length);
 
-    const audio = document.createElement("audio");
-    audio.controls = true;
-    audio.src = "data:audio/webm;base64," + data.audio;
+    const audio = new Audio("data:audio/webm;base64," + data.audio);
 
-    document.getElementById("mensajes").appendChild(audio);
-
-    audio.play().catch(function(error) {
-        mensaje("Presiona PLAY manualmente. Error: " + error.message);
-    });
+audio.play().then(function() {
+    mensaje("Reproduciendo audio de " + data.usuario);
+}).catch(function(error) {
+    mensaje("Audio recibido de " + data.usuario + ". Toca la pantalla una vez para permitir reproducción.");
+});
 });
 
 function getUsuario() {
