@@ -75,32 +75,6 @@ body::before{
 .online-name{font-weight:850;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .online-state{font-size:11px;color:#5eead4;font-weight:900;white-space:nowrap;}
 .online-state.talking{color:#fb7185;}
-.role-badge{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    margin-left:8px;
-    padding:3px 7px;
-    border-radius:999px;
-    font-size:10px;
-    font-weight:900;
-    letter-spacing:.03em;
-}
-.role-admin{
-    background:rgba(239,68,68,.18);
-    color:#fca5a5;
-    border:1px solid rgba(239,68,68,.24);
-}
-.role-supervisor{
-    background:rgba(249,115,22,.18);
-    color:#fdba74;
-    border:1px solid rgba(249,115,22,.24);
-}
-.role-usuario{
-    background:rgba(92,242,214,.12);
-    color:#5CF2D6;
-    border:1px solid rgba(92,242,214,.20);
-}
 .ptt-card{padding:26px 16px 22px;text-align:center;}
 .ptt-wrap{display:flex;justify-content:center;align-items:center;min-height:250px;}
 #ptt{width:210px;height:210px;border-radius:50%;border:5px solid rgba(255,255,255,.10);background:var(--red);color:white;font-size:39px;font-weight:950;letter-spacing:.5px;cursor:pointer;box-shadow:0 0 42px rgba(239,43,45,.45), inset 0 2px 0 rgba(255,255,255,.20);touch-action:none;user-select:none;transition:.15s ease;}
@@ -188,6 +162,10 @@ body::before{
                     <span>Sonidos de radio</span>
                     <input id="soundEnabled" type="checkbox" checked>
                 </label>
+
+                <button class="connect-btn" style="margin-top:12px;background:#334155;color:white;" onclick="forzarReconexionVoz()">
+                    Reiniciar enlace de voz
+                </button>
             </section>
 
             <section class="card">
@@ -238,8 +216,8 @@ let watchdogTimer = null;
 let ultimoRejoin = 0;
 let autoReintentos = 0;
 let audioCtx = null;
-let prioridadUsuario = 0;
-let rolUsuario = "usuario";
+let ultimoIntentoOferta = 0;
+let negociacionBloqueada = false;
 
 const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const btn = document.getElementById("ptt");
@@ -324,12 +302,7 @@ async function entrar(){
 }
 
 function emitirEntradaCanal(){
-    socket.emit("entrar_canal", {
-        canal_id: canal,
-        usuario: getUsuario(),
-        rol: rolUsuario,
-        prioridad: prioridadUsuario
-    });
+    socket.emit("entrar_canal", { canal_id: canal, usuario: getUsuario() });
 }
 
 async function crearPC(){
@@ -343,10 +316,19 @@ async function crearPC(){
     pc.ontrack = (event) => {
         const remoteAudio = document.getElementById("remoteAudio");
         remoteAudio.srcObject = event.streams[0];
-        remoteAudio.play().catch(() => {
-            remoteAudio.style.display = "block";
-            log("El navegador bloqueó autoplay. Toca PLAY una vez en el reproductor.");
-        });
+        remoteAudio.muted = false;
+        remoteAudio.volume = 1.0;
+
+        const playPromise = remoteAudio.play();
+
+        if(playPromise){
+            playPromise.catch(() => {
+                remoteAudio.style.display = "block";
+                log("El navegador bloqueó autoplay. Toca PLAY una vez en el reproductor.");
+            });
+        }
+
+        setMiniEstado("rtcEstado", "connected", true);
         log("Audio remoto recibido.");
     };
 
@@ -395,24 +377,54 @@ function cerrarPC(){
 
 async function iniciarEnlaceVoz(){
     if(!estoyEnCanal){ log("Primero conecta la radio al canal."); return; }
-    if(offerEnCurso || enlaceIniciado){ return; }
+    if(offerEnCurso || negociacionBloqueada){ return; }
 
+    const ahora = Date.now();
+    if(ahora - ultimoIntentoOferta < 3500){
+        log("Evitando oferta duplicada WebRTC.");
+        return;
+    }
+
+    ultimoIntentoOferta = ahora;
     offerEnCurso = true;
     enlaceIniciado = true;
+    negociacionBloqueada = true;
 
-    await crearPC();
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
+    try{
+        await crearPC();
 
-    socket.emit("webrtc_signal", {
-        canal_id: canal,
-        usuario: getUsuario(),
-        type: "offer",
-        payload: offer
-    });
+        if(!pc) return;
 
-    estado("Enlace enviado. Esperando respuesta...", "busy");
-    log("Oferta WebRTC enviada.");
+        if(pc.signalingState !== "stable"){
+            log("WebRTC no está estable. Reiniciando enlace antes de ofertar...");
+            cerrarPC();
+            await crearPC();
+        }
+
+        const offer = await pc.createOffer({ offerToReceiveAudio: true });
+        await pc.setLocalDescription(offer);
+
+        socket.emit("webrtc_signal", {
+            canal_id: canal,
+            usuario: getUsuario(),
+            type: "offer",
+            payload: offer
+        });
+
+        estado("Enlace enviado. Esperando respuesta...", "busy");
+        setMiniEstado("rtcEstado", "Negociando", false);
+        log("Oferta WebRTC enviada.");
+
+    }catch(error){
+        log("Error creando oferta WebRTC: " + error.message);
+        cerrarPC();
+        setMiniEstado("rtcEstado", "Sin enlace", false);
+    }finally{
+        setTimeout(() => {
+            offerEnCurso = false;
+            negociacionBloqueada = false;
+        }, 1800);
+    }
 }
 
 async function reiniciarEnlace(){
@@ -422,9 +434,15 @@ async function reiniciarEnlace(){
 }
 
 socket.on("usuario_entro", async (data) => {
-    if(!estoyEnCanal) return;
-    log(data.usuario + " entró. Creando enlace automático...");
-    setTimeout(async () => { if(!pc) await iniciarEnlaceVoz(); }, 500);
+    if(!estoyEnCanal || !radioConectada) return;
+
+    log(data.usuario + " entró al canal.");
+
+    setTimeout(async () => {
+        if(!pc && !offerEnCurso && !negociacionBloqueada){
+            await iniciarEnlaceVoz();
+        }
+    }, 1200);
 });
 
 socket.on("webrtc_signal", async (data) => {
@@ -436,50 +454,80 @@ socket.on("webrtc_signal", async (data) => {
     if(data.type === "offer"){
         log("Oferta recibida de " + data.usuario);
 
-        const hayColision = pc && (pc.signalingState !== "stable" || offerEnCurso);
-        if(hayColision){
-            if(socket.id && data.from && socket.id < data.from){
-                log("Colisión de oferta: se conserva oferta local.");
-                return;
+        try{
+            const hayColision = pc && (
+                pc.signalingState !== "stable" ||
+                offerEnCurso ||
+                negociacionBloqueada
+            );
+
+            if(hayColision){
+                log("Colisión de oferta detectada. Se reinicia enlace local y se acepta oferta remota.");
+                cerrarPC();
+                await new Promise(resolve => setTimeout(resolve, 350));
             }
+
+            offerEnCurso = false;
+            negociacionBloqueada = true;
+
+            await crearPC();
+            await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+
+            for(const c of candidatosPendientes){
+                try{ await pc.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
+            }
+
+            candidatosPendientes = [];
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            socket.emit("webrtc_signal", {
+                canal_id: canal,
+                usuario: getUsuario(),
+                type: "answer",
+                payload: answer
+            });
+
+            enlaceIniciado = true;
+            estado("Enlace de voz respondido.", "free");
+            setMiniEstado("rtcEstado", "Respondiendo", false);
+            log("Respuesta WebRTC enviada.");
+
+        }catch(error){
+            log("Error aceptando oferta WebRTC: " + error.message);
             cerrarPC();
-            log("Colisión de oferta: aceptando oferta remota.");
+            programarReconexionWebRTC("error aceptando oferta");
+        }finally{
+            setTimeout(() => {
+                negociacionBloqueada = false;
+            }, 1200);
         }
-
-        await crearPC();
-        await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
-
-        for(const c of candidatosPendientes){
-            try{ await pc.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
-        }
-        candidatosPendientes = [];
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socket.emit("webrtc_signal", {
-            canal_id: canal,
-            usuario: getUsuario(),
-            type: "answer",
-            payload: answer
-        });
-
-        enlaceIniciado = true;
-        offerEnCurso = false;
-        estado("Enlace de voz respondido.", "free");
-        log("Respuesta WebRTC enviada.");
     }
 
     if(data.type === "answer"){
         log("Respuesta recibida de " + data.usuario);
-        if(pc && pc.signalingState !== "stable"){
-            await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
-            for(const c of candidatosPendientes){
-                try{ await pc.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
+
+        try{
+            if(pc && pc.signalingState === "have-local-offer"){
+                await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+
+                for(const c of candidatosPendientes){
+                    try{ await pc.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
+                }
+
+                candidatosPendientes = [];
+                offerEnCurso = false;
+                negociacionBloqueada = false;
+                estado("Enlace conectado. Mantén PTT para hablar.", "free");
+                setMiniEstado("rtcEstado", "connected", true);
+            }else{
+                log("Respuesta ignorada porque WebRTC no esperaba answer.");
             }
-            candidatosPendientes = [];
-            offerEnCurso = false;
-            estado("Enlace conectado. Mantén PTT para hablar.", "free");
+        }catch(error){
+            log("Error procesando respuesta WebRTC: " + error.message);
+            cerrarPC();
+            programarReconexionWebRTC("error answer");
         }
     }
 
@@ -510,12 +558,7 @@ function setMic(active){
     btn.classList.toggle("talking", active);
     playTone(active ? "tx" : "rx");
 
-    socket.emit(active ? "ptt_inicio" : "ptt_fin", {
-        canal_id: canal,
-        usuario: getUsuario(),
-        rol: rolUsuario,
-        prioridad: prioridadUsuario
-    });
+    socket.emit(active ? "ptt_inicio" : "ptt_fin", { canal_id: canal, usuario: getUsuario() });
     estado(active ? getUsuario() + " hablando..." : "Canal libre", active ? "tx" : "free");
 }
 
@@ -563,19 +606,13 @@ function renderUsuariosOnline(usuarios){
     usuarios.forEach((u) => {
         const hablando = !!u.hablando;
         const nombre = u.usuario || "Usuario";
-        const rol = String(u.rol || "usuario").toLowerCase();
         const div = document.createElement("div");
         div.className = "online-user";
         div.innerHTML = `
             <div class="online-left">
                 <span class="dot ${hablando ? "talking" : ""}"></span>
                 <span class="avatar"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 21c1.4-4 4.2-6 8-6s6.6 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
-                <span class="online-name">
-                    ${escapeHtml(nombre)}
-                    <span class="role-badge role-${rol}">
-                        ${escapeHtml(rol.toUpperCase())}
-                    </span>
-                </span>
+                <span class="online-name">${escapeHtml(nombre)}</span>
             </div>
             <span class="online-state ${hablando ? "talking" : ""}">${hablando ? "HABLANDO" : "ONLINE"}</span>`;
         contenedor.appendChild(div);
@@ -590,24 +627,8 @@ function initPantalla(){
     try{ user = JSON.parse(userData); }catch(e){}
 
     const nombreUsuario = user.nombre || user.correo || "Usuario";
-
-    rolUsuario = String(user.rol || "usuario").toLowerCase();
-
-    if(rolUsuario === "admin"){
-        prioridadUsuario = 100;
-    }else if(rolUsuario === "supervisor"){
-        prioridadUsuario = 50;
-    }else{
-        prioridadUsuario = 10;
-    }
-
     document.getElementById("usuario").value = nombreUsuario;
-
-    document.getElementById("usuarioSesion").innerHTML =
-        escapeHtml(nombreUsuario) +
-        ' <span class="role-badge role-' + rolUsuario + '">' +
-        escapeHtml(rolUsuario.toUpperCase()) +
-        '</span>';
+    document.getElementById("usuarioSesion").innerText = nombreUsuario;
 
     const params = new URLSearchParams(window.location.search);
     const canalUrl = params.get("canal_id");
@@ -718,7 +739,7 @@ function iniciarWatchdog(){
             return;
         }
 
-        if(estoyEnCanal && (!pc || ["failed","disconnected","closed"].includes(pc.connectionState))){
+        if(estoyEnCanal && pc && ["failed","closed"].includes(pc.connectionState)){
             programarReconexionWebRTC("watchdog");
         }
 
@@ -804,6 +825,34 @@ function playTone(tipo){
         osc.start();
         osc.stop(audioCtx.currentTime + cfg[1] + 0.015);
     }catch(e){}
+}
+
+
+
+async function forzarReconexionVoz(){
+    log("Reinicio manual del enlace de voz solicitado...");
+    playTone("notify");
+
+    cerrarPC();
+    enlaceIniciado = false;
+    offerEnCurso = false;
+    negociacionBloqueada = false;
+    candidatosPendientes = [];
+
+    estado("Reiniciando enlace de voz...", "busy");
+    setMiniEstado("rtcEstado", "Reiniciando", false);
+
+    if(socket.connected && estoyEnCanal){
+        emitirEntradaCanal();
+    }
+
+    setTimeout(async () => {
+        try{
+            await iniciarEnlaceVoz();
+        }catch(error){
+            log("Error en reinicio manual: " + error.message);
+        }
+    }, 1000);
 }
 
 
