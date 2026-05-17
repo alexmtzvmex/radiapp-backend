@@ -16,17 +16,19 @@
 <input type="number" id="canal" value="1">
 <br><br>
 
-<button onclick="conectar()">Entrar al canal</button>
+<button onclick="activarMicrofono()">1. Activar micrófono</button>
+<button onclick="activarAudio()">2. Activar audio</button>
+<button onclick="conectar()">3. Entrar al canal</button>
 
 <hr>
 
 <button
     id="btnPTT"
-    onmousedown="iniciarPTT()"
-    onmouseup="detenerPTT()"
-    ontouchstart="iniciarPTT()"
-    ontouchend="detenerPTT()"
-    style="width:200px;height:200px;border-radius:100px;font-size:30px;background:red;color:white;"
+    onmousedown="iniciarPTT(event)"
+    onmouseup="detenerPTT(event)"
+    ontouchstart="iniciarPTT(event)"
+    ontouchend="detenerPTT(event)"
+    style="width:220px;height:220px;border-radius:110px;font-size:36px;background:red;color:white;"
 >
 PTT
 </button>
@@ -41,10 +43,27 @@ const socket = io("https://radiapp-backend.onrender.com");
 let mediaRecorder = null;
 let stream = null;
 let grabando = false;
+let audioActivo = false;
+
+async function activarMicrofono() {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        document.getElementById("estado").innerText = "Micrófono activado correctamente";
+    } catch (error) {
+        alert("No se pudo activar el micrófono: " + error.message);
+    }
+}
+
+function activarAudio() {
+    audioActivo = true;
+    const audio = new Audio();
+    audio.play().catch(() => {});
+    document.getElementById("estado").innerText = "Audio activado";
+}
 
 function conectar() {
-    const usuario = document.getElementById("usuario").value;
-    const canal = document.getElementById("canal").value;
+    const usuario = document.getElementById("usuario").value || "Usuario";
+    const canal = document.getElementById("canal").value || "1";
 
     socket.emit("entrar_canal", {
         canal_id: canal,
@@ -54,66 +73,64 @@ function conectar() {
     document.getElementById("estado").innerText = "Conectado al canal " + canal;
 }
 
-async function iniciarPTT() {
+async function iniciarPTT(event) {
+    event.preventDefault();
+
     if (grabando) return;
 
-    const usuario = document.getElementById("usuario").value;
-    const canal = document.getElementById("canal").value;
+    const usuario = document.getElementById("usuario").value || "Usuario";
+    const canal = document.getElementById("canal").value || "1";
+
+    if (!stream) {
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (error) {
+            alert("No se pudo activar el micrófono: " + error.message);
+            return;
+        }
+    }
 
     socket.emit("ptt_inicio", {
         canal_id: canal,
         usuario: usuario
     });
 
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
 
-        mediaRecorder = new MediaRecorder(stream, {
-            mimeType: "audio/webm"
-        });
+    mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size > 0) {
+            const reader = new FileReader();
 
-        mediaRecorder.ondataavailable = async (event) => {
-            if (event.data.size > 0) {
-                const buffer = await event.data.arrayBuffer();
-                const bytes = new Uint8Array(buffer);
-                let binary = "";
-
-                for (let i = 0; i < bytes.length; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-
-                const base64Audio = btoa(binary);
+            reader.onloadend = function() {
+                const base64Audio = reader.result.split(",")[1];
 
                 socket.emit("audio_chunk", {
                     canal_id: canal,
                     usuario: usuario,
                     audio: base64Audio
                 });
-            }
-        };
+            };
 
-        mediaRecorder.start(300);
-        grabando = true;
+            reader.readAsDataURL(event.data);
+        }
+    };
 
-        document.getElementById("estado").innerText = usuario + " está hablando...";
+    mediaRecorder.start(500);
+    grabando = true;
 
-    } catch (error) {
-        alert("No se pudo activar el micrófono: " + error.message);
-    }
+    document.getElementById("estado").innerText = usuario + " está hablando...";
 }
 
-function detenerPTT() {
+function detenerPTT(event) {
+    if (event) event.preventDefault();
+
     if (!grabando) return;
 
-    const usuario = document.getElementById("usuario").value;
-    const canal = document.getElementById("canal").value;
+    const usuario = document.getElementById("usuario").value || "Usuario";
+    const canal = document.getElementById("canal").value || "1";
 
-    if (mediaRecorder) {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
-    }
-
-    if (stream) {
-        stream.getTracks().forEach(track => track.stop());
     }
 
     grabando = false;
@@ -135,8 +152,17 @@ socket.on("ptt_estado", (data) => {
 });
 
 socket.on("audio_chunk", (data) => {
+    if (!audioActivo) {
+        document.getElementById("mensajes").innerHTML +=
+            `<p>Audio recibido de ${data.usuario}, pero debes presionar "Activar audio".</p>`;
+        return;
+    }
+
     const audio = new Audio("data:audio/webm;base64," + data.audio);
-    audio.play();
+    audio.play().catch(error => {
+        document.getElementById("mensajes").innerHTML +=
+            `<p>Error reproduciendo audio: ${error.message}</p>`;
+    });
 });
 </script>
 
