@@ -20,6 +20,11 @@ const io = socketIO(server, {
 app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+const authRoutes = require("./routes/auth.routes");
+
+app.use(express.json());
+
+app.use("/api/auth", authRoutes);
 app.get("/", async (req, res) => {
 
     let mysqlStatus = "OFFLINE";
