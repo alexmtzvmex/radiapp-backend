@@ -1,4 +1,5 @@
 const express = require("express");
+const adminRoutes = require("./routes/admin.routes");
 const http = require("http");
 const socketIO = require("socket.io");
 const cors = require("cors");
@@ -20,6 +21,7 @@ const io = socketIO(server, {
 app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 const authRoutes = require("./routes/auth.routes");
 
 app.use(express.json());
