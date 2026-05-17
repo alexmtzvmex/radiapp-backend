@@ -32,7 +32,10 @@ PTT
 
 <script>
 const socket = io("https://radiapp-backend.onrender.com");
-
+document.body.addEventListener("click", function() {
+    const desbloqueo = new Audio();
+    desbloqueo.play().catch(() => {});
+}, { once: true });
 let stream = null;
 let mediaRecorder = null;
 let audioChunks = [];
