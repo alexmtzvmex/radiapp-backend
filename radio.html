@@ -18,10 +18,7 @@
 <hr>
 
 <button
-    onmousedown="iniciarPTT(event)"
-    onmouseup="detenerPTT(event)"
-    ontouchstart="iniciarPTT(event)"
-    ontouchend="detenerPTT(event)"
+    id="btnPTT"
     style="width:220px;height:220px;border-radius:110px;font-size:36px;background:red;color:white;"
 >
 PTT
@@ -32,14 +29,20 @@ PTT
 
 <script>
 const socket = io("https://radiapp-backend.onrender.com");
-document.body.addEventListener("click", function() {
-    const desbloqueo = new Audio();
-    desbloqueo.play().catch(() => {});
-}, { once: true });
+
 let stream = null;
 let mediaRecorder = null;
 let audioChunks = [];
 let grabando = false;
+let audioQueue = [];
+let reproduciendo = false;
+
+const btn = document.getElementById("btnPTT");
+
+btn.addEventListener("pointerdown", iniciarPTT);
+btn.addEventListener("pointerup", detenerPTT);
+btn.addEventListener("pointercancel", detenerPTT);
+btn.addEventListener("pointerleave", detenerPTT);
 
 async function activarMicrofono() {
     try {
@@ -51,15 +54,12 @@ async function activarMicrofono() {
 }
 
 function conectar() {
-    const usuario = getUsuario();
-    const canal = getCanal();
-
     socket.emit("entrar_canal", {
-        canal_id: canal,
-        usuario: usuario
+        canal_id: getCanal(),
+        usuario: getUsuario()
     });
 
-    estado("Conectado al canal " + canal);
+    estado("Conectado al canal " + getCanal());
 }
 
 async function iniciarPTT(event) {
@@ -71,17 +71,22 @@ async function iniciarPTT(event) {
         await activarMicrofono();
     }
 
+    if (!stream) return;
+
     audioChunks = [];
+    grabando = true;
+
+    btn.style.background = "green";
 
     mediaRecorder = new MediaRecorder(stream);
 
     mediaRecorder.ondataavailable = function(event) {
-        if (event.data.size > 0) {
+        if (event.data && event.data.size > 0) {
             audioChunks.push(event.data);
         }
     };
 
-    mediaRecorder.onstop = async function() {
+    mediaRecorder.onstop = function() {
         const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
 
         const reader = new FileReader();
@@ -102,7 +107,6 @@ async function iniciarPTT(event) {
     };
 
     mediaRecorder.start();
-    grabando = true;
 
     socket.emit("ptt_inicio", {
         canal_id: getCanal(),
@@ -113,13 +117,14 @@ async function iniciarPTT(event) {
 }
 
 function detenerPTT(event) {
-    event.preventDefault();
+    if (event) event.preventDefault();
 
     if (!grabando) return;
 
     grabando = false;
+    btn.style.background = "red";
 
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
     }
 
@@ -140,16 +145,29 @@ socket.on("ptt_estado", function(data) {
 });
 
 socket.on("audio_completo", function(data) {
-    mensaje("Audio recibido de " + data.usuario + " - tamaño: " + data.audio.length);
-
-    const audio = new Audio("data:audio/webm;base64," + data.audio);
-
-audio.play().then(function() {
-    mensaje("Reproduciendo audio de " + data.usuario);
-}).catch(function(error) {
-    mensaje("Audio recibido de " + data.usuario + ". Toca la pantalla una vez para permitir reproducción.");
+    mensaje("Audio recibido de " + data.usuario);
+    audioQueue.push(data.audio);
+    reproducirSiguiente();
 });
-});
+
+function reproducirSiguiente() {
+    if (reproduciendo || audioQueue.length === 0) return;
+
+    reproduciendo = true;
+
+    const audioBase64 = audioQueue.shift();
+    const audio = new Audio("data:audio/webm;base64," + audioBase64);
+
+    audio.onended = function() {
+        reproduciendo = false;
+        reproducirSiguiente();
+    };
+
+    audio.play().catch(function() {
+        reproduciendo = false;
+        mensaje("Audio recibido, toca la pantalla una vez y vuelve a probar.");
+    });
+}
 
 function getUsuario() {
     return document.getElementById("usuario").value || "Usuario";
