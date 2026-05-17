@@ -112,7 +112,13 @@ router.post("/login", async (req, res) => {
             {
                 id: usuario.id,
                 correo: usuario.correo,
-                rol: usuario.rol || "usuario"
+                rol: usuario.rol || "usuario",
+                prioridad:
+                    usuario.rol === "admin"
+                        ? 100
+                        : usuario.rol === "supervisor"
+                            ? 50
+                            : 10
             },
             process.env.JWT_SECRET,
             { expiresIn: "7d" }
