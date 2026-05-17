@@ -1,5 +1,6 @@
 const express = require("express");
 const http = require("http");
+const channelRoutes = require("./routes/channels.routes");
 const socketIO = require("socket.io");
 const cors = require("cors");
 require("dotenv").config();
@@ -23,6 +24,7 @@ app.use(express.json());
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/channels", channelRoutes);
 
 app.get("/", async (req, res) => {
     let mysqlStatus = "OFFLINE";
