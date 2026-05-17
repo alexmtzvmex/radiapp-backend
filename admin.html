@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RadiApp Admin</title>
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon.png">
+<meta name="theme-color" content="#020817">
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
+body{min-height:100vh;background:#020817;color:white;padding:22px}
+.header{max-width:1200px;margin:0 auto 22px;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.logo{display:flex;align-items:center;gap:12px}
+.logo img{width:46px;height:46px;border-radius:12px}
+.logo h1{font-size:28px}
+.admin-user{text-align:right;color:#cbd5e1}
+.admin-user strong{color:#5CF2D6}
+.container{max-width:1200px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-bottom:18px}
+.card{background:linear-gradient(180deg,rgba(16,28,49,.88),rgba(5,13,28,.92));border:1px solid rgba(92,242,214,.30);border-radius:24px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+.card h2{font-size:22px;margin-bottom:14px}
+.table-wrap{overflow:auto}
+table{width:100%;border-collapse:collapse;min-width:780px}
+th,td{padding:12px;border-bottom:1px solid rgba(148,163,184,.18);text-align:left;font-size:14px}
+th{color:#5CF2D6;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+td{color:#e5e7eb}
+.badge{display:inline-block;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:bold}
+.badge.activo,.badge.si{background:rgba(34,197,94,.14);color:#22c55e}
+.badge.pendiente{background:rgba(249,115,22,.16);color:#fb923c}
+.badge.rechazado,.badge.no{background:rgba(239,68,68,.16);color:#f87171}
+.badge.admin{background:rgba(92,242,214,.15);color:#5CF2D6}
+.badge.usuario{background:rgba(148,163,184,.16);color:#cbd5e1}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+button{border:none;border-radius:12px;padding:10px 13px;font-weight:800;cursor:pointer;color:white;background:#334155}
+button.primary{background:linear-gradient(90deg,#64f4da,#18d4c6);color:#03111f}
+button.warn{background:#f97316}
+button.danger{background:#ef4444}
+button.blue{background:#2563eb}
+button.gray{background:#475569}
+.top-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.msg{margin:14px 0;color:#5CF2D6;font-weight:bold;white-space:pre-wrap}
+.error{color:#fb7185}
+.empty{color:#94a3b8;padding:12px 0}
+@media(max-width:700px){
+    body{padding:14px}
+    .header{flex-direction:column;text-align:center}
+    .admin-user{text-align:center}
+    .logo h1{font-size:24px}
+}
+</style>
+</head>
+
+<body>
+<div class="header">
+    <div class="logo">
+        <img src="icon.png" alt="RadiApp">
+        <h1>Panel Admin RadiApp</h1>
+    </div>
+
+    <div class="admin-user">
+        <div>Administrador:</div>
+        <strong id="adminNombre">Validando...</strong><br><br>
+        <button class="danger" onclick="cerrarSesion()">Cerrar sesión</button>
+    </div>
+</div>
+
+<div class="container">
+    <div class="top-actions">
+        <button class="primary" onclick="cargarTodo()">Actualizar panel</button>
+        <button class="blue" onclick="window.location.href='dashboard.html'">Ir al dashboard</button>
+    </div>
+
+    <div id="mensaje" class="msg"></div>
+
+    <div class="grid">
+        <div class="card">
+            <h2>Usuarios pendientes</h2>
+            <div id="pendientes"></div>
+        </div>
+
+        <div class="card">
+            <h2>Usuarios activos</h2>
+            <div id="activos"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Canales</h2>
+        <div id="canales"></div>
+    </div>
+</div>
+
+<script>
+const API = "https://radiapp-backend.onrender.com";
+
+function getToken(){
+    return localStorage.getItem("radiapp_token");
+}
+
+function getUsuarioLocal(){
+    try{
+        return JSON.parse(localStorage.getItem("radiapp_user") || "{}");
+    }catch(e){
+        return {};
+    }
+}
+
+function headers(){
+    return {
+        "Content-Type":"application/json",
+        "Authorization":"Bearer " + getToken()
+    };
+}
+
+function cerrarSesion(){
+    localStorage.removeItem("radiapp_token");
+    localStorage.removeItem("radiapp_user");
+    localStorage.removeItem("radiapp_canal");
+    window.location.href = "login.html";
+}
+
+function mensaje(texto, error=false){
+    const el = document.getElementById("mensaje");
+    el.className = error ? "msg error" : "msg";
+    el.innerText = texto || "";
+}
+
+async function validarAdmin(){
+    const token = getToken();
+    const usuario = getUsuarioLocal();
+
+    if(!token){
+        window.location.href = "login.html";
+        return false;
+    }
+
+    document.getElementById("adminNombre").innerText =
+        usuario.nombre || usuario.correo || "Administrador";
+
+    try{
+        const res = await fetch(API + "/api/admin/validar", {
+            headers: headers()
+        });
+
+        const json = await res.json();
+
+        if(!json.success){
+            mensaje(json.error || "No tienes permisos de administrador.", true);
+            setTimeout(() => window.location.href = "dashboard.html", 1200);
+            return false;
+        }
+
+        return true;
+
+    }catch(error){
+        mensaje("Error validando permisos de administrador.", true);
+        return false;
+    }
+}
+
+async function apiGet(ruta){
+    const res = await fetch(API + ruta, { headers: headers() });
+    const json = await res.json();
+
+    if(res.status === 401 || res.status === 403){
+        mensaje(json.error || "Acceso denegado.", true);
+        setTimeout(() => window.location.href = "dashboard.html", 1200);
+        throw new Error(json.error || "Acceso denegado");
+    }
+
+    return json;
+}
+
+async function apiPut(ruta, body=null){
+    const options = {
+        method:"PUT",
+        headers: headers()
+    };
+
+    if(body){
+        options.body = JSON.stringify(body);
+    }
+
+    const res = await fetch(API + ruta, options);
+    const json = await res.json();
+
+    if(!json.success){
+        mensaje(json.error || "No se pudo realizar la acción.", true);
+    }else{
+        mensaje(json.message || "Acción realizada correctamente.");
+    }
+
+    return json;
+}
+
+function tablaUsuarios(usuarios, tipo){
+    if(!usuarios || usuarios.length === 0){
+        return `<div class="empty">No hay usuarios para mostrar.</div>`;
+    }
+
+    let html = `
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Correo</th>
+                <th>Estatus</th>
+                <th>Rol</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    usuarios.forEach(u => {
+        const accionesPendiente = `
+            <button class="primary" onclick="aprobar(${u.id})">Aprobar</button>
+            <button class="danger" onclick="rechazar(${u.id})">Rechazar</button>
+        `;
+
+        const accionesActivo = `
+            ${u.rol === "admin"
+                ? `<button class="warn" onclick="quitarAdmin(${u.id})">Quitar admin</button>`
+                : `<button class="blue" onclick="hacerAdmin(${u.id})">Hacer admin</button>`
+            }
+            <button class="danger" onclick="rechazar(${u.id})">Bloquear</button>
+        `;
+
+        html += `
+            <tr>
+                <td>${u.id}</td>
+                <td>${escapeHtml(u.nombre_completo || "")}</td>
+                <td>${escapeHtml(u.correo || "")}</td>
+                <td><span class="badge ${u.estatus}">${u.estatus}</span></td>
+                <td><span class="badge ${u.rol}">${u.rol}</span></td>
+                <td><div class="actions">${tipo === "pendientes" ? accionesPendiente : accionesActivo}</div></td>
+            </tr>
+        `;
+    });
+
+    html += `</tbody></table></div>`;
+    return html;
+}
+
+function tablaCanales(canales){
+    if(!canales || canales.length === 0){
+        return `<div class="empty">No hay canales para mostrar.</div>`;
+    }
+
+    let html = `
+    <div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Canal</th>
+                <th>Descripción</th>
+                <th>Contraseña</th>
+                <th>Visible público</th>
+                <th>Activo</th>
+                <th>Creado por</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    canales.forEach(c => {
+        const privado = Number(c.privado) === 1;
+        const visible = Number(c.visible_publico) === 1;
+        const activo = Number(c.activo) === 1;
+
+        html += `
+            <tr>
+                <td>${c.id}</td>
+                <td>${escapeHtml(c.nombre_canal || "")}</td>
+                <td>${escapeHtml(c.descripcion || "")}</td>
+                <td><span class="badge ${privado ? "no" : "si"}">${privado ? "Privado" : "Abierto"}</span></td>
+                <td><span class="badge ${visible ? "si" : "no"}">${visible ? "Sí" : "No"}</span></td>
+                <td><span class="badge ${activo ? "si" : "no"}">${activo ? "Sí" : "No"}</span></td>
+                <td>${escapeHtml(c.creado_por || "")}</td>
+                <td>
+                    <div class="actions">
+                        ${visible
+                            ? `<button class="gray" onclick="cambiarVisibilidad(${c.id},0)">Ocultar público</button>`
+                            : `<button class="primary" onclick="cambiarVisibilidad(${c.id},1)">Hacer público</button>`
+                        }
+
+                        <button class="blue" onclick="gestionarMiembros(${c.id}, '${"${escapeHtml(c.nombre_canal || "")}"}')">Miembros</button>
+
+                        ${activo
+                            ? `<button class="danger" onclick="desactivarCanal(${c.id})">Desactivar</button>`
+                            : `<button class="primary" onclick="activarCanal(${c.id})">Activar</button>`
+                        }
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `</tbody></table></div>`;
+    return html;
+}
+
+async function cargarTodo(){
+    mensaje("Cargando panel...");
+
+    try{
+        const pendientes = await apiGet("/api/admin/usuarios-pendientes");
+        const activos = await apiGet("/api/admin/usuarios-activos");
+        const canales = await apiGet("/api/admin/canales");
+
+        document.getElementById("pendientes").innerHTML =
+            tablaUsuarios(pendientes.usuarios, "pendientes");
+
+        document.getElementById("activos").innerHTML =
+            tablaUsuarios(activos.usuarios, "activos");
+
+        document.getElementById("canales").innerHTML =
+            tablaCanales(canales.canales);
+
+        mensaje("");
+
+    }catch(error){
+        mensaje("No se pudo cargar el panel admin.", true);
+    }
+}
+
+async function aprobar(id){
+    await apiPut("/api/admin/aprobar/" + id);
+    cargarTodo();
+}
+
+async function rechazar(id){
+    if(!confirm("¿Seguro que deseas rechazar/bloquear este usuario?")) return;
+    await apiPut("/api/admin/rechazar/" + id);
+    cargarTodo();
+}
+
+async function hacerAdmin(id){
+    if(!confirm("¿Seguro que deseas convertir este usuario en administrador?")) return;
+    await apiPut("/api/admin/hacer-admin/" + id);
+    cargarTodo();
+}
+
+async function quitarAdmin(id){
+    if(!confirm("¿Seguro que deseas quitar el rol de administrador?")) return;
+    await apiPut("/api/admin/quitar-admin/" + id);
+    cargarTodo();
+}
+
+async function desactivarCanal(id){
+    if(!confirm("¿Seguro que deseas desactivar este canal?")) return;
+    await apiPut("/api/admin/canales/desactivar/" + id);
+    cargarTodo();
+}
+
+async function activarCanal(id){
+    await apiPut("/api/admin/canales/activar/" + id);
+    cargarTodo();
+}
+
+async function cambiarVisibilidad(id, visible_publico){
+    const texto = visible_publico === 1
+        ? "¿Deseas hacer este canal visible para todos?"
+        : "¿Deseas ocultar este canal del dashboard público?";
+
+    if(!confirm(texto)) return;
+
+    await apiPut("/api/admin/canales/visibilidad/" + id, {
+        visible_publico
+    });
+
+    cargarTodo();
+}
+
+function escapeHtml(texto){
+    return String(texto)
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
+}
+
+(async function iniciar(){
+    const ok = await validarAdmin();
+    if(ok){
+        cargarTodo();
+    }
+})();
+
+if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+
+<script>
+async function gestionarMiembros(canalId, nombreCanal){
+
+    try{
+
+        const usuariosRes = await apiGet("/api/admin/usuarios");
+        const miembrosRes = await apiGet("/api/admin/canales/" + canalId + "/miembros");
+
+        const miembrosIds = miembrosRes.miembros.map(m => Number(m.usuario_id));
+
+        let lista = "Miembros actuales del canal: " + nombreCanal + "\n\n";
+
+        miembrosRes.miembros.forEach(m => {
+            lista += "- " + m.nombre_completo + " (" + m.correo + ")\n";
+        });
+
+        lista += "\nUsuarios disponibles:\n";
+
+        usuariosRes.usuarios.forEach(u => {
+            if(!miembrosIds.includes(Number(u.id))){
+                lista += u.id + " - " + u.nombre_completo + "\n";
+            }
+        });
+
+        const usuarioId = prompt(lista + "\nEscribe el ID del usuario que deseas agregar:");
+
+        if(!usuarioId) return;
+
+        await fetch(API + "/api/admin/canales/" + canalId + "/agregar-miembro", {
+            method:"POST",
+            headers: headers(),
+            body: JSON.stringify({
+                usuario_id: usuarioId
+            })
+        });
+
+        mensaje("Usuario agregado correctamente.");
+
+    }catch(error){
+        mensaje("Error administrando miembros.", true);
+    }
+}
+</script>
+</body>
+
+</html>
