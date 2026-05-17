@@ -186,7 +186,17 @@ async function iniciarEnlaceVoz() {
     estado("Enlace de voz enviado. Esperando respuesta...");
     log("Oferta WebRTC enviada.");
 }
+socket.on("usuario_entro", async (data) => {
+    log(data.usuario + " entró, creando enlace automático...");
 
+    if (!localStream) {
+        await activar();
+    }
+
+    if (!pc) {
+        await llamar();
+    }
+});
 socket.on("webrtc_signal", async (data) => {
     if (!localStream) {
         await activar();
