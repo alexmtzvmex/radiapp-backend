@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp Login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon.png">
+<meta name="theme-color" content="#0f172a">
+
+<style>
+body{
+    margin:0;
+    background:#0b1120;
+    color:white;
+    font-family:Arial, Helvetica, sans-serif;
+}
+.header{
+    text-align:center;
+    padding:30px 15px;
+    font-size:36px;
+    font-weight:bold;
+}
+.card{
+    max-width:420px;
+    margin:20px auto;
+    background:#111827;
+    border:1px solid #334155;
+    border-radius:20px;
+    padding:25px;
+}
+input{
+    width:100%;
+    padding:15px;
+    margin-top:12px;
+    border:none;
+    border-radius:12px;
+    background:#1e293b;
+    color:white;
+    font-size:16px;
+    box-sizing:border-box;
+}
+button{
+    width:100%;
+    padding:15px;
+    margin-top:15px;
+    border:none;
+    border-radius:12px;
+    background:#2563eb;
+    color:white;
+    font-size:17px;
+    font-weight:bold;
+}
+button.secondary{
+    background:#475569;
+}
+.msg{
+    margin-top:15px;
+    color:#93c5fd;
+    white-space:pre-wrap;
+}
+.logo{
+    width:70px;
+    vertical-align:middle;
+    margin-right:10px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+    <img src="icon.png" class="logo">
+    RadiApp
+</div>
+
+<div class="card">
+
+    <h2>Iniciar sesión</h2>
+
+    <input id="login_correo" type="email" placeholder="Correo">
+    <input id="login_password" type="password" placeholder="Contraseña">
+
+    <button onclick="login()">Entrar</button>
+
+    <hr style="border-color:#334155;margin:25px 0;">
+
+    <h2>Solicitar registro</h2>
+
+    <input id="reg_nombre" placeholder="Nombre completo">
+    <input id="reg_correo" type="email" placeholder="Correo">
+    <input id="reg_password" type="password" placeholder="Contraseña">
+
+    <button class="secondary" onclick="registrar()">Enviar solicitud</button>
+
+    <div id="mensaje" class="msg"></div>
+
+</div>
+
+<script>
+const API = "https://radiapp-backend.onrender.com";
+
+async function login() {
+    const datos = {
+        correo: document.getElementById("login_correo").value,
+        password: document.getElementById("login_password").value
+    };
+
+    const res = await fetch(API + "/api/auth/login", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(datos)
+    });
+
+    const json = await res.json();
+
+    if (json.success) {
+        localStorage.setItem("radiapp_token", json.token);
+        localStorage.setItem("radiapp_user", JSON.stringify(json.usuario));
+
+        document.getElementById("mensaje").innerText =
+            "Login correcto. Entrando al dashboard...";
+
+        setTimeout(() => {
+            window.location.href = "dashboard.html";
+        }, 800);
+    } else {
+        document.getElementById("mensaje").innerText =
+            json.error || "No se pudo iniciar sesión";
+    }
+}
+
+async function registrar() {
+    const datos = {
+        nombre_completo: document.getElementById("reg_nombre").value,
+        correo: document.getElementById("reg_correo").value,
+        password: document.getElementById("reg_password").value
+    };
+
+    const res = await fetch(API + "/api/auth/register", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(datos)
+    });
+
+    const json = await res.json();
+
+    document.getElementById("mensaje").innerText =
+        json.message || json.error || "Solicitud enviada";
+}
+
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
