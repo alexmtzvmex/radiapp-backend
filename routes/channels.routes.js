@@ -80,7 +80,7 @@ router.get("/listar", async (req, res) => {
         const usuarioId = req.query.usuario_id || null;
 
         const [canales] = await db.query(`
-            SELECT 
+            SELECT DISTINCT
                 c.id,
                 c.nombre_canal,
                 c.descripcion,
@@ -88,13 +88,22 @@ router.get("/listar", async (req, res) => {
                 c.visible_publico,
                 c.activo,
                 c.fecha_creacion,
-                u.nombre_completo AS creado_por
+                u.nombre_completo AS creado_por,
+                CASE
+                    WHEN cm.usuario_id IS NOT NULL THEN 1
+                    ELSE 0
+                END AS autorizado
             FROM canales c
             LEFT JOIN usuarios u ON u.id = c.creado_por
+            LEFT JOIN canal_miembros cm
+                ON cm.canal_id = c.id
+                AND cm.usuario_id = ?
+                AND cm.autorizado = 1
             WHERE c.activo = 1
             AND (
                 c.visible_publico = 1
-                OR (? IS NOT NULL AND c.creado_por = ?)
+                OR c.creado_por = ?
+                OR cm.usuario_id IS NOT NULL
             )
             ORDER BY c.fecha_creacion DESC
         `, [usuarioId, usuarioId]);
@@ -116,7 +125,7 @@ router.get("/listar", async (req, res) => {
 
 router.post("/validar-acceso", async (req, res) => {
     try {
-        const { canal_id, password_canal } = req.body;
+        const { canal_id, password_canal, usuario_id } = req.body;
 
         if (!canal_id) {
             return res.status(400).json({
@@ -126,7 +135,7 @@ router.post("/validar-acceso", async (req, res) => {
         }
 
         const [canales] = await db.query(
-            `SELECT id, nombre_canal, privado, password_hash, activo
+            `SELECT id, nombre_canal, privado, visible_publico, password_hash, activo, creado_por
              FROM canales
              WHERE id = ?
              LIMIT 1`,
@@ -149,6 +158,25 @@ router.post("/validar-acceso", async (req, res) => {
             });
         }
 
+        if (Number(canal.visible_publico) !== 1 && Number(canal.creado_por) !== Number(usuario_id)) {
+            const [miembro] = await db.query(
+                `SELECT id
+                 FROM canal_miembros
+                 WHERE canal_id = ?
+                 AND usuario_id = ?
+                 AND autorizado = 1
+                 LIMIT 1`,
+                [canal_id, usuario_id]
+            );
+
+            if (miembro.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    error: "No estás autorizado para entrar a este canal"
+                });
+            }
+        }
+
         if (Number(canal.privado) !== 1) {
             return res.json({
                 success: true,
@@ -168,7 +196,6 @@ router.post("/validar-acceso", async (req, res) => {
         if (canal.password_hash && canal.password_hash.startsWith("$2")) {
             acceso = await bcrypt.compare(password_canal, canal.password_hash);
         } else {
-            // Respaldo temporal para canales viejos que quedaron con contraseña en texto plano.
             acceso = password_canal === canal.password_hash;
         }
 
@@ -194,41 +221,4 @@ router.post("/validar-acceso", async (req, res) => {
     }
 });
 
-
-router.get("/miembros/:canal_id", async (req, res) => {
-    try {
-
-        const canalId = req.params.canal_id;
-
-        const [miembros] = await db.query(`
-            SELECT 
-                cm.id,
-                cm.usuario_id,
-                cm.rol,
-                cm.autorizado,
-                u.nombre_completo,
-                u.correo
-            FROM canal_miembros cm
-            INNER JOIN usuarios u ON u.id = cm.usuario_id
-            WHERE cm.canal_id = ?
-            ORDER BY u.nombre_completo ASC
-        `, [canalId]);
-
-        res.json({
-            success: true,
-            miembros
-        });
-
-    } catch (error) {
-
-        console.error("Error obteniendo miembros:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Error obteniendo miembros"
-        });
-    }
-});
-
 module.exports = router;
-

@@ -77,6 +77,27 @@ router.get("/validar", async (req, res) => {
     });
 });
 
+router.get("/usuarios", async (req, res) => {
+    try {
+        const [usuarios] = await db.query(`
+            SELECT id, nombre_completo, correo, estatus, rol, fecha_registro
+            FROM usuarios
+            WHERE estatus = 'activo'
+            ORDER BY nombre_completo ASC
+        `);
+
+        res.json({ success: true, usuarios });
+
+    } catch (error) {
+        console.error("Error usuarios:", error);
+
+        res.status(500).json({
+            success: false,
+            error: "Error obteniendo usuarios"
+        });
+    }
+});
+
 router.get("/usuarios-pendientes", async (req, res) => {
     try {
         const [usuarios] = await db.query(`
@@ -251,6 +272,115 @@ router.get("/canales", async (req, res) => {
     }
 });
 
+router.get("/canales/:id/miembros", async (req, res) => {
+    try {
+        const canalId = req.params.id;
+
+        const [miembros] = await db.query(`
+            SELECT 
+                cm.id,
+                cm.usuario_id,
+                cm.rol,
+                cm.autorizado,
+                u.nombre_completo,
+                u.correo
+            FROM canal_miembros cm
+            INNER JOIN usuarios u ON u.id = cm.usuario_id
+            WHERE cm.canal_id = ?
+            ORDER BY u.nombre_completo ASC
+        `, [canalId]);
+
+        res.json({
+            success: true,
+            miembros
+        });
+
+    } catch (error) {
+        console.error("Error miembros canal:", error);
+
+        res.status(500).json({
+            success: false,
+            error: "Error obteniendo miembros del canal"
+        });
+    }
+});
+
+router.post("/canales/:id/agregar-miembro", async (req, res) => {
+    try {
+        const canalId = req.params.id;
+        const usuarioId = req.body.usuario_id;
+
+        if (!usuarioId) {
+            return res.status(400).json({
+                success: false,
+                error: "Usuario requerido"
+            });
+        }
+
+        const [existente] = await db.query(`
+            SELECT id
+            FROM canal_miembros
+            WHERE canal_id = ?
+            AND usuario_id = ?
+            LIMIT 1
+        `, [canalId, usuarioId]);
+
+        if (existente.length > 0) {
+            await db.query(`
+                UPDATE canal_miembros
+                SET autorizado = 1
+                WHERE canal_id = ?
+                AND usuario_id = ?
+            `, [canalId, usuarioId]);
+        } else {
+            await db.query(`
+                INSERT INTO canal_miembros
+                (canal_id, usuario_id, rol, autorizado)
+                VALUES (?, ?, 'miembro', 1)
+            `, [canalId, usuarioId]);
+        }
+
+        res.json({
+            success: true,
+            message: "Usuario agregado al canal"
+        });
+
+    } catch (error) {
+        console.error("Error agregando miembro:", error);
+
+        res.status(500).json({
+            success: false,
+            error: "Error agregando miembro"
+        });
+    }
+});
+
+router.put("/canales/:id/quitar-miembro/:usuario_id", async (req, res) => {
+    try {
+        const canalId = req.params.id;
+        const usuarioId = req.params.usuario_id;
+
+        await db.query(`
+            DELETE FROM canal_miembros
+            WHERE canal_id = ?
+            AND usuario_id = ?
+        `, [canalId, usuarioId]);
+
+        res.json({
+            success: true,
+            message: "Usuario removido del canal"
+        });
+
+    } catch (error) {
+        console.error("Error quitando miembro:", error);
+
+        res.status(500).json({
+            success: false,
+            error: "Error quitando miembro"
+        });
+    }
+});
+
 router.put("/canales/desactivar/:id", async (req, res) => {
     try {
         const id = req.params.id;
@@ -326,148 +456,4 @@ router.put("/canales/visibilidad/:id", async (req, res) => {
     }
 });
 
-
-router.get("/usuarios", async (req, res) => {
-    try {
-
-        const [usuarios] = await db.query(`
-            SELECT 
-                id,
-                nombre_completo,
-                correo,
-                rol,
-                estatus
-            FROM usuarios
-            WHERE estatus = 'activo'
-            ORDER BY nombre_completo ASC
-        `);
-
-        res.json({
-            success: true,
-            usuarios
-        });
-
-    } catch (error) {
-
-        console.error("Error usuarios:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Error obteniendo usuarios"
-        });
-    }
-});
-
-router.get("/canales/:id/miembros", async (req, res) => {
-    try {
-
-        const canalId = req.params.id;
-
-        const [miembros] = await db.query(`
-            SELECT 
-                cm.id,
-                cm.usuario_id,
-                cm.rol,
-                cm.autorizado,
-                u.nombre_completo,
-                u.correo
-            FROM canal_miembros cm
-            INNER JOIN usuarios u ON u.id = cm.usuario_id
-            WHERE cm.canal_id = ?
-            ORDER BY u.nombre_completo ASC
-        `, [canalId]);
-
-        res.json({
-            success: true,
-            miembros
-        });
-
-    } catch (error) {
-
-        console.error("Error miembros canal:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Error obteniendo miembros"
-        });
-    }
-});
-
-router.post("/canales/:id/agregar-miembro", async (req, res) => {
-    try {
-
-        const canalId = req.params.id;
-        const { usuario_id } = req.body;
-
-        const [existente] = await db.query(`
-            SELECT id
-            FROM canal_miembros
-            WHERE canal_id = ?
-            AND usuario_id = ?
-            LIMIT 1
-        `, [canalId, usuario_id]);
-
-        if(existente.length > 0){
-
-            await db.query(`
-                UPDATE canal_miembros
-                SET autorizado = 1
-                WHERE canal_id = ?
-                AND usuario_id = ?
-            `, [canalId, usuario_id]);
-
-        }else{
-
-            await db.query(`
-                INSERT INTO canal_miembros
-                (canal_id, usuario_id, rol, autorizado)
-                VALUES (?, ?, 'miembro', 1)
-            `, [canalId, usuario_id]);
-        }
-
-        res.json({
-            success: true,
-            message: "Usuario agregado al canal"
-        });
-
-    } catch (error) {
-
-        console.error("Error agregando miembro:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Error agregando miembro"
-        });
-    }
-});
-
-router.delete("/canales/:id/quitar-miembro/:usuario_id", async (req, res) => {
-    try {
-
-        const canalId = req.params.id;
-        const usuarioId = req.params.usuario_id;
-
-        await db.query(`
-            DELETE FROM canal_miembros
-            WHERE canal_id = ?
-            AND usuario_id = ?
-        `, [canalId, usuarioId]);
-
-        res.json({
-            success: true,
-            message: "Usuario removido del canal"
-        });
-
-    } catch (error) {
-
-        console.error("Error quitando miembro:", error);
-
-        res.status(500).json({
-            success: false,
-            error: "Error quitando miembro"
-        });
-    }
-});
-
 module.exports = router;
-
