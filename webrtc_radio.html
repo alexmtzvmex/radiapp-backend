@@ -1,14 +1,121 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+
 <meta charset="UTF-8">
-<title>RadiApp WebRTC Auto</title>
+
+<title>RadiApp</title>
+
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+
+body{
+    margin:0;
+    padding:0;
+    background:#111827;
+    color:white;
+    font-family:Arial, Helvetica, sans-serif;
+}
+
+.header{
+    background:#0f172a;
+    padding:20px;
+    text-align:center;
+    font-size:34px;
+    font-weight:bold;
+    border-bottom:2px solid #1e293b;
+}
+
+.container{
+    padding:20px;
+}
+
+input{
+    width:100%;
+    max-width:350px;
+    padding:14px;
+    margin-top:10px;
+    border:none;
+    border-radius:10px;
+    background:#1e293b;
+    color:white;
+    font-size:16px;
+}
+
+button{
+    padding:14px 20px;
+    border:none;
+    border-radius:10px;
+    background:#2563eb;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
+    margin-top:10px;
+}
+
+button:hover{
+    background:#1d4ed8;
+}
+
+#ptt{
+    width:260px;
+    height:260px;
+    border-radius:130px;
+    background:#dc2626;
+    color:white;
+    font-size:54px;
+    border:none;
+    margin-top:40px;
+    box-shadow:0 0 40px rgba(255,0,0,0.5);
+    transition:0.2s;
+}
+
+#ptt:active{
+    transform:scale(0.96);
+}
+
+.estado{
+    margin-top:20px;
+    font-size:28px;
+    font-weight:bold;
+}
+
+.log{
+    margin-top:30px;
+    background:#1e293b;
+    padding:20px;
+    border-radius:15px;
+    max-height:250px;
+    overflow:auto;
+}
+
+.log p{
+    margin:8px 0;
+    padding:10px;
+    background:#0f172a;
+    border-radius:10px;
+}
+
+.center{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+}
+
+</style>
+
 </head>
 
 <body>
 
-<h1>RadiApp WebRTC Auto</h1>
+<div class="header">
+📻 RadiApp
+</div>
+
+<div class="container">
 
 <input id="usuario" placeholder="Tu nombre"><br><br>
 <input id="canal" value="1"><br><br>
@@ -22,8 +129,8 @@
 PTT
 </button>
 
-<h2 id="estado">Desconectado</h2>
-<div id="log"></div>
+<h2 id="estado" class="estado">Desconectado</h2>
+<div id="log" class="log"></div>
 
 <script>
 const socket = io("https://radiapp-backend.onrender.com");
@@ -307,6 +414,6 @@ function log(texto) {
 }
 
 </script>
-
+</div>
 </body>
 </html>
