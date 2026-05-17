@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp Radio</title>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+</head>
+<body>
+
+<h1>RadiApp Canal General</h1>
+
+<input type="text" id="usuario" placeholder="Tu nombre">
+<br><br>
+
+<input type="number" id="canal" value="1">
+<br><br>
+
+<button onclick="conectar()">Entrar al canal</button>
+
+<hr>
+
+<button
+    onmousedown="hablar()"
+    onmouseup="dejarHablar()"
+    ontouchstart="hablar()"
+    ontouchend="dejarHablar()"
+    style="
+        width:200px;
+        height:200px;
+        border-radius:100px;
+        font-size:30px;
+        background:red;
+        color:white;
+    "
+>
+PTT
+</button>
+
+<h2 id="estado">Desconectado</h2>
+
+<div id="mensajes"></div>
+
+<script>
+
+const socket = io("https://radiapp-backend.onrender.com");
+
+function conectar() {
+
+    const usuario = document.getElementById("usuario").value;
+    const canal = document.getElementById("canal").value;
+
+    socket.emit("entrar_canal", {
+        canal_id: canal,
+        usuario: usuario
+    });
+
+    document.getElementById("estado").innerText =
+        "Conectado al canal " + canal;
+}
+
+function hablar() {
+
+    const usuario = document.getElementById("usuario").value;
+    const canal = document.getElementById("canal").value;
+
+    socket.emit("ptt_inicio", {
+        canal_id: canal,
+        usuario: usuario
+    });
+}
+
+function dejarHablar() {
+
+    const usuario = document.getElementById("usuario").value;
+    const canal = document.getElementById("canal").value;
+
+    socket.emit("ptt_fin", {
+        canal_id: canal,
+        usuario: usuario
+    });
+}
+
+socket.on("mensaje_canal", (data) => {
+
+    document.getElementById("mensajes").innerHTML += `
+        <p>${data.mensaje}</p>
+    `;
+});
+
+socket.on("ptt_estado", (data) => {
+
+    document.getElementById("estado").innerText =
+        data.mensaje;
+});
+
+</script>
+
+</body>
+</html>
