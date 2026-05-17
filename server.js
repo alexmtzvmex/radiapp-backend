@@ -51,7 +51,7 @@ io.on("connection", (socket) => {
     console.log("Usuario conectado:", socket.id);
 socket.on("audio_completo", (data) => {
     const canalId = data.canal_id;
-
+console.log("Audio recibido para canal:", canalId, "usuario:", data.usuario);
     socket.to("canal_" + canalId).emit("audio_completo", {
         audio: data.audio,
         usuario: data.usuario
