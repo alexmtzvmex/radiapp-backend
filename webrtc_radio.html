@@ -212,6 +212,9 @@ let watchdogTimer = null;
 let ultimoRejoin = 0;
 let autoReintentos = 0;
 let audioCtx = null;
+let heartbeatTimer = null;
+let pttKeepaliveTimer = null;
+let ultimoHeartbeat = 0;
 
 const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const btn = document.getElementById("ptt");
@@ -254,6 +257,26 @@ socket.io.on("reconnect", () => {
     playTone("connect");
 });
 
+socket.on("heartbeat_ack", (data) => {
+    ultimoHeartbeat = Date.now();
+});
+
+socket.on("ptt_warning", (data) => {
+    playTone("busy");
+    log(data.mensaje || "Advertencia de tiempo de transmisión.");
+});
+
+socket.on("ptt_interrumpido", (data) => {
+    if(pttActivo){
+        detenerPTTKeepalive();
+        setMic(false);
+    }
+
+    playTone("busy");
+    estado("Transmisión interrumpida", "busy");
+    log(data.mensaje || "Tu transmisión fue interrumpida.");
+});
+
 async function conectarRadio(){
     try{
         prepararAudio();
@@ -262,6 +285,7 @@ async function conectarRadio(){
         connectBtn.classList.add("hidden");
         radioConectada = true;
         iniciarWatchdog();
+        iniciarHeartbeat();
         playTone("connect");
     }catch(error){
         alert("No se pudo conectar la radio: " + error.message);
@@ -478,6 +502,13 @@ function setMic(active){
     playTone(active ? "tx" : "rx");
 
     socket.emit(active ? "ptt_inicio" : "ptt_fin", { canal_id: canal, usuario: getUsuario() });
+
+    if(active){
+        iniciarPTTKeepalive();
+    }else{
+        detenerPTTKeepalive();
+    }
+
     estado(active ? getUsuario() + " hablando..." : "Canal libre", active ? "tx" : "free");
 }
 
@@ -747,11 +778,85 @@ function playTone(tipo){
 }
 
 
+
+
+function iniciarHeartbeat(){
+    detenerHeartbeat();
+
+    ultimoHeartbeat = Date.now();
+
+    heartbeatTimer = setInterval(() => {
+
+        if(!radioConectada || !socket.connected) return;
+
+        socket.emit("heartbeat", {
+            canal_id: canal,
+            usuario: getUsuario(),
+            timestamp: Date.now()
+        });
+
+        const diff = Date.now() - ultimoHeartbeat;
+
+        if(diff > 60000){
+            log("Heartbeat vencido. Intentando recuperar conexión...");
+            setMiniEstado("socketEstado", "Heartbeat perdido", false);
+
+            try{
+                socket.disconnect();
+            }catch(e){}
+
+            setTimeout(() => {
+                try{
+                    socket.connect();
+                    reingresarCanal("heartbeat vencido");
+                }catch(e){}
+            }, 1200);
+        }
+
+    }, 15000);
+}
+
+function detenerHeartbeat(){
+    if(heartbeatTimer){
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+    }
+}
+
+function iniciarPTTKeepalive(){
+    detenerPTTKeepalive();
+
+    pttKeepaliveTimer = setInterval(() => {
+
+        if(!pttActivo || !socket.connected) return;
+
+        socket.emit("ptt_keepalive", {
+            canal_id: canal,
+            usuario: getUsuario(),
+            timestamp: Date.now()
+        });
+
+    }, 8000);
+}
+
+function detenerPTTKeepalive(){
+    if(pttKeepaliveTimer){
+        clearInterval(pttKeepaliveTimer);
+        pttKeepaliveTimer = null;
+    }
+}
+
 function volverDashboard(){ window.location.href = "dashboard.html"; }
 
 window.addEventListener("beforeunload", () => {
     try{
-        if(pttActivo) socket.emit("ptt_fin", { canal_id: canal, usuario: getUsuario() });
+        detenerHeartbeat();
+        detenerPTTKeepalive();
+
+        if(pttActivo){
+            socket.emit("ptt_fin", { canal_id: canal, usuario: getUsuario() });
+        }
+
         socket.emit("salir_canal");
     }catch(e){}
 });
