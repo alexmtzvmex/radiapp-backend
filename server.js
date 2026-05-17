@@ -49,6 +49,7 @@ app.get("/", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
+    
     console.log("Usuario conectado:", socket.id);
 
     socket.on("entrar_canal", (data) => {
@@ -65,7 +66,26 @@ io.on("connection", (socket) => {
     });
 
     socket.on("ptt_inicio", (data) => {
-        io.to("canal_" + data.canal_id).emit("ptt_estado", {
+socket.on("webrtc_offer", (data) => {
+    socket.to("canal_" + data.canal_id).emit("webrtc_offer", {
+        offer: data.offer,
+        usuario: data.usuario
+    });
+});
+
+socket.on("webrtc_answer", (data) => {
+    socket.to("canal_" + data.canal_id).emit("webrtc_answer", {
+        answer: data.answer,
+        usuario: data.usuario
+    });
+});
+
+socket.on("webrtc_ice_candidate", (data) => {
+    socket.to("canal_" + data.canal_id).emit("webrtc_ice_candidate", {
+        candidate: data.candidate,
+        usuario: data.usuario
+    });
+});        io.to("canal_" + data.canal_id).emit("ptt_estado", {
             mensaje: data.usuario + " está hablando..."
         });
     });
