@@ -137,16 +137,16 @@ socket.on("ptt_estado", function(data) {
 });
 
 socket.on("audio_completo", function(data) {
-    mensaje("Audio recibido de " + data.usuario);
+    mensaje("Audio recibido de " + data.usuario + " - tamaño: " + data.audio.length);
 
-    const audio = new Audio("data:audio/webm;base64," + data.audio);
+    const audio = document.createElement("audio");
     audio.controls = true;
-    audio.autoplay = true;
+    audio.src = "data:audio/webm;base64," + data.audio;
 
     document.getElementById("mensajes").appendChild(audio);
 
     audio.play().catch(function(error) {
-        mensaje("Presiona PLAY en el audio recibido. Error autoplay: " + error.message);
+        mensaje("Presiona PLAY manualmente. Error: " + error.message);
     });
 });
 
