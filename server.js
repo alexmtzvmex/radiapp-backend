@@ -16,11 +16,12 @@ const io = socketIO(server, {
     cors: {
         origin: "*",
         methods: ["GET", "POST", "PUT"]
-    }
+    },
+    maxHttpBufferSize: 20 * 1024 * 1024
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "20mb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
@@ -43,61 +44,58 @@ app.get("/", async (req, res) => {
         status: "ONLINE",
         mysql: mysqlStatus,
         socket: "READY",
-        version: "1.0.0"
+        version: "1.0.1"
     });
 });
 
 io.on("connection", (socket) => {
     console.log("Usuario conectado:", socket.id);
-socket.on("audio_completo", (data) => {
-    const canalId = data.canal_id;
-console.log("Audio recibido para canal:", canalId, "usuario:", data.usuario);
-    socket.to("canal_" + canalId).emit("audio_completo", {
-        audio: data.audio,
-        usuario: data.usuario
-    });
-});
+
     socket.on("entrar_canal", (data) => {
-        const canalId = data.canal_id;
+        const canalId = data.canal_id || "1";
         const usuario = data.usuario || "Usuario";
 
         socket.join("canal_" + canalId);
+        socket.data.canalId = canalId;
+        socket.data.usuario = usuario;
 
         io.to("canal_" + canalId).emit("mensaje_canal", {
-            tipo: "sistema",
             mensaje: usuario + " entró al canal " + canalId
         });
     });
 
     socket.on("ptt_inicio", (data) => {
-        const canalId = data.canal_id;
-        const usuario = data.usuario || "Usuario";
-
-        io.to("canal_" + canalId).emit("ptt_estado", {
-            hablando: true,
-            usuario: usuario,
-            mensaje: usuario + " está hablando..."
+        io.to("canal_" + data.canal_id).emit("ptt_estado", {
+            mensaje: data.usuario + " está hablando..."
         });
     });
 
     socket.on("ptt_fin", (data) => {
-        const canalId = data.canal_id;
-        const usuario = data.usuario || "Usuario";
-
-        io.to("canal_" + canalId).emit("ptt_estado", {
-            hablando: false,
-            usuario: usuario,
-            mensaje: usuario + " dejó de hablar."
+        io.to("canal_" + data.canal_id).emit("ptt_estado", {
+            mensaje: data.usuario + " dejó de hablar."
         });
     });
-socket.on("audio_chunk", (data) => {
-    const canalId = data.canal_id;
 
-    socket.to("canal_" + canalId).emit("audio_chunk", {
-        audio: data.audio,
-        usuario: data.usuario
+    socket.on("audio_completo", (data) => {
+        const canalId = data.canal_id || socket.data.canalId || "1";
+
+        console.log("Audio recibido:", {
+            canal: canalId,
+            usuario: data.usuario,
+            size: data.audio ? data.audio.length : 0
+        });
+
+        socket.emit("audio_ack", {
+            mensaje: "Servidor recibió audio de " + data.usuario,
+            size: data.audio ? data.audio.length : 0
+        });
+
+        socket.to("canal_" + canalId).emit("audio_completo", {
+            audio: data.audio,
+            usuario: data.usuario
+        });
     });
-});
+
     socket.on("disconnect", () => {
         console.log("Usuario desconectado:", socket.id);
     });
