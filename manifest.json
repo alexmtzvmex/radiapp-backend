@@ -1,0 +1,17 @@
+{
+  "name": "RadiApp",
+  "short_name": "RadiApp",
+  "description": "Comunicación tipo walkie-talkie privada en tiempo real.",
+  "start_url": "/radiapp-backend/webrtc_radio.html",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
