@@ -2,245 +2,187 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>RadiApp WebRTC</title>
-
+<title>RadiApp WebRTC Test</title>
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-
 </head>
 <body>
 
-<h1>RadiApp WebRTC</h1>
+<h1>RadiApp WebRTC Test</h1>
 
-<input type="text" id="usuario" placeholder="Tu nombre">
-<br><br>
+<input id="usuario" placeholder="Tu nombre"><br><br>
+<input id="canal" value="1"><br><br>
 
-<input type="number" id="canal" value="1">
-<br><br>
-
-<button onclick="activarMicrofono()">
-1. Activar micrófono
-</button>
-
-<button onclick="entrarCanal()">
-2. Entrar al canal
-</button>
+<button onclick="activar()">1. Activar micrófono y audio</button>
+<button onclick="entrar()">2. Entrar al canal</button>
+<button onclick="llamar()">3. Iniciar enlace de voz</button>
 
 <hr>
 
-<button
-id="btnPTT"
-style="
-width:220px;
-height:220px;
-border-radius:110px;
-background:red;
-color:white;
-font-size:42px;
-"
->
+<button id="ptt" style="width:220px;height:220px;border-radius:110px;background:red;color:white;font-size:40px;">
 PTT
 </button>
 
 <h2 id="estado">Desconectado</h2>
+<div id="log"></div>
 
 <script>
-
 const socket = io("https://radiapp-backend.onrender.com");
 
+let pc = null;
 let localStream = null;
-let peerConnection = null;
+let canal = "1";
 
-const btnPTT = document.getElementById("btnPTT");
-
-const rtcConfig = {
-    iceServers: [
-        {
-            urls: "stun:stun.l.google.com:19302"
-        }
-    ]
+const config = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-btnPTT.addEventListener("pointerdown", iniciarHablar);
-btnPTT.addEventListener("pointerup", detenerHablar);
+const btn = document.getElementById("ptt");
 
-async function activarMicrofono() {
+btn.addEventListener("pointerdown", () => setMic(true));
+btn.addEventListener("pointerup", () => setMic(false));
+btn.addEventListener("pointercancel", () => setMic(false));
+btn.addEventListener("pointerleave", () => setMic(false));
 
-    try {
+async function activar() {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        localStream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true
-            });
+    localStream.getAudioTracks().forEach(t => t.enabled = false);
 
-        estado("Micrófono activado");
+    const a = new Audio();
+    a.play().catch(() => {});
 
-    } catch(error) {
-
-        alert(error.message);
-
-    }
-
+    estado("Micrófono listo. Audio desbloqueado.");
 }
 
-function entrarCanal() {
+function entrar() {
+    canal = document.getElementById("canal").value || "1";
 
     socket.emit("entrar_canal", {
-        canal_id: getCanal(),
+        canal_id: canal,
         usuario: getUsuario()
     });
 
-    estado("Conectado canal " + getCanal());
-
+    estado("Dentro del canal " + canal);
 }
 
-async function iniciarHablar() {
-
-    btnPTT.style.background = "green";
-
-    peerConnection = new RTCPeerConnection(rtcConfig);
+async function crearPC() {
+    pc = new RTCPeerConnection(config);
 
     localStream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, localStream);
+        pc.addTrack(track, localStream);
     });
 
-    peerConnection.onicecandidate = (event) => {
-
-        if(event.candidate) {
-
-            socket.emit("webrtc_ice_candidate", {
-                canal_id: getCanal(),
-                candidate: event.candidate,
-                usuario: getUsuario()
-            });
-
-        }
-
-    };
-
-    const offer = await peerConnection.createOffer();
-
-    await peerConnection.setLocalDescription(offer);
-
-    socket.emit("webrtc_offer", {
-        canal_id: getCanal(),
-        offer: offer,
-        usuario: getUsuario()
-    });
-
-    estado(getUsuario() + " hablando...");
-
-}
-
-function detenerHablar() {
-
-    btnPTT.style.background = "red";
-
-    if(peerConnection) {
-
-        peerConnection.close();
-
-        peerConnection = null;
-
-    }
-
-    estado(getUsuario() + " dejó de hablar");
-
-}
-
-socket.on("webrtc_offer", async (data) => {
-
-    peerConnection = new RTCPeerConnection(rtcConfig);
-
-    peerConnection.ontrack = (event) => {
-
-        const audio = new Audio();
-
+    pc.ontrack = (event) => {
+        log("Audio remoto recibido");
+        const audio = document.createElement("audio");
         audio.srcObject = event.streams[0];
+        audio.autoplay = true;
+        audio.controls = true;
+        document.body.appendChild(audio);
 
-        audio.play();
-
+        audio.play().catch(() => {
+            log("Toca PLAY si el navegador bloquea el audio.");
+        });
     };
 
-    peerConnection.onicecandidate = (event) => {
-
-        if(event.candidate) {
-
-            socket.emit("webrtc_ice_candidate", {
-                canal_id: getCanal(),
-                candidate: event.candidate,
-                usuario: getUsuario()
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            socket.emit("webrtc_signal", {
+                canal_id: canal,
+                usuario: getUsuario(),
+                type: "candidate",
+                payload: event.candidate
             });
-
         }
-
     };
+}
 
-    await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(data.offer)
-    );
+async function llamar() {
+    if (!localStream) {
+        alert("Primero activa el micrófono");
+        return;
+    }
 
-    const answer = await peerConnection.createAnswer();
+    await crearPC();
 
-    await peerConnection.setLocalDescription(answer);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
 
-    socket.emit("webrtc_answer", {
-        canal_id: getCanal(),
-        answer: answer,
-        usuario: getUsuario()
+    socket.emit("webrtc_signal", {
+        canal_id: canal,
+        usuario: getUsuario(),
+        type: "offer",
+        payload: offer
     });
 
-});
+    estado("Enlace enviado. Esperando respuesta...");
+}
 
-socket.on("webrtc_answer", async (data) => {
-
-    if(peerConnection) {
-
-        await peerConnection.setRemoteDescription(
-            new RTCSessionDescription(data.answer)
-        );
-
+socket.on("webrtc_signal", async (data) => {
+    if (!localStream) {
+        await activar();
     }
 
-});
+    if (data.type === "offer") {
+        log("Oferta recibida de " + data.usuario);
 
-socket.on("webrtc_ice_candidate", async (data) => {
+        await crearPC();
 
-    try {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
 
-        if(peerConnection) {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
 
-            await peerConnection.addIceCandidate(
-                new RTCIceCandidate(data.candidate)
-            );
+        socket.emit("webrtc_signal", {
+            canal_id: canal,
+            usuario: getUsuario(),
+            type: "answer",
+            payload: answer
+        });
 
+        estado("Enlace de voz respondido");
+    }
+
+    if (data.type === "answer") {
+        log("Respuesta recibida de " + data.usuario);
+
+        if (pc) {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.payload));
+            estado("Enlace de voz conectado");
         }
-
-    } catch(error) {
-
-        console.log(error);
-
     }
 
+    if (data.type === "candidate") {
+        try {
+            if (pc) {
+                await pc.addIceCandidate(new RTCIceCandidate(data.payload));
+            }
+        } catch (e) {
+            log("ICE pendiente/error: " + e.message);
+        }
+    }
 });
+
+function setMic(active) {
+    if (!localStream) return;
+
+    localStream.getAudioTracks().forEach(t => t.enabled = active);
+
+    btn.style.background = active ? "green" : "red";
+    estado(active ? getUsuario() + " hablando..." : "Micrófono cerrado");
+}
 
 function getUsuario() {
-
     return document.getElementById("usuario").value || "Usuario";
-
 }
 
-function getCanal() {
-
-    return document.getElementById("canal").value || "1";
-
+function estado(t) {
+    document.getElementById("estado").innerText = t;
 }
 
-function estado(texto) {
-
-    document.getElementById("estado").innerText = texto;
-
+function log(t) {
+    document.getElementById("log").innerHTML += "<p>" + t + "</p>";
 }
-
 </script>
 
 </body>
