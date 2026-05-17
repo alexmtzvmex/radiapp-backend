@@ -14,7 +14,7 @@
 
 <button onclick="activar()">1. Activar micrófono y audio</button>
 <button onclick="entrar()">2. Entrar al canal</button>
-<button onclick="llamar()">3. Iniciar enlace de voz</button>
+
 
 <hr>
 
@@ -54,15 +54,21 @@ async function activar() {
     estado("Micrófono listo. Audio desbloqueado.");
 }
 
-function entrar() {
-    canal = document.getElementById("canal").value || "1";
+async function entrarCanal() {
+
+    const usuario = document.getElementById("usuario").value;
+    const canal = document.getElementById("canal").value;
 
     socket.emit("entrar_canal", {
-        canal_id: canal,
-        usuario: getUsuario()
+        usuario: usuario,
+        canal_id: canal
     });
 
-    estado("Dentro del canal " + canal);
+    agregarMensaje(usuario + " entró al canal " + canal);
+
+    // INICIAR WEBRTC AUTOMÁTICO
+    await iniciarLlamada();
+
 }
 
 async function crearPC() {
