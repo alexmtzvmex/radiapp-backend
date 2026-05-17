@@ -83,7 +83,14 @@ io.on("connection", (socket) => {
             mensaje: usuario + " dejó de hablar."
         });
     });
+socket.on("audio_chunk", (data) => {
+    const canalId = data.canal_id;
 
+    socket.to("canal_" + canalId).emit("audio_chunk", {
+        audio: data.audio,
+        usuario: data.usuario
+    });
+});
     socket.on("disconnect", () => {
         console.log("Usuario desconectado:", socket.id);
     });
