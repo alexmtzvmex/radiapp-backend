@@ -24,7 +24,23 @@ h1{font-size:34px;margin-bottom:8px}.subtitle{color:#a7adba;margin-bottom:24px}.
 </head>
 <body>
 <div class="header"><div class="logo"><img src="Logo.png" alt="RadiApp"></div><div class="user-box"><div>Sesión iniciada como:</div><strong id="usuarioNombre">Usuario</strong><br><button class="logout" onclick="cerrarSesion()">Cerrar sesión</button></div></div>
-<div class="container"><div class="card"><h1>Dashboard RadiApp</h1><p class="subtitle">Selecciona un canal para comunicarte por radio PTT.</p><div class="actions"><button class="btn btn-primary" onclick="mostrarFormulario()">Crear canal</button><button class="btn btn-secondary" onclick="cargarCanales()">Actualizar canales</button></div><div id="formCrear" class="form"><input id="nombre_canal" type="text" placeholder="Nombre del canal"><textarea id="descripcion" placeholder="Descripción del canal"></textarea><input id="password_canal" type="password" placeholder="Contraseña del canal"><button class="btn btn-primary" onclick="crearCanal()">Guardar canal</button></div><div id="canales" class="channels"></div><div id="mensaje" class="msg"></div></div></div>
+<div class="container"><div class="card"><h1>Dashboard RadiApp</h1><p class="subtitle">Selecciona un canal para comunicarte por radio PTT.</p><div class="actions">
+
+    <button class="btn btn-primary" onclick="mostrarFormulario()">
+        Crear canal
+    </button>
+
+    <button class="btn btn-secondary" onclick="cargarCanales()">
+        Actualizar canales
+    </button>
+
+    <button
+        id="btnAdmin"
+        class="btn btn-secondary"
+        style="display:none;"
+        onclick="window.location.href='admin.html'">
+        Panel Admin
+    </button><button class="btn btn-primary" onclick="mostrarFormulario()">Crear canal</button><button class="btn btn-secondary" onclick="cargarCanales()">Actualizar canales</button></div><div id="formCrear" class="form"><input id="nombre_canal" type="text" placeholder="Nombre del canal"><textarea id="descripcion" placeholder="Descripción del canal"></textarea><input id="password_canal" type="password" placeholder="Contraseña del canal"><button class="btn btn-primary" onclick="crearCanal()">Guardar canal</button></div><div id="canales" class="channels"></div><div id="mensaje" class="msg"></div></div></div>
 <div id="modalPassword" class="modal-bg"><div class="modal"><h2>Contraseña del canal</h2><p id="modalCanalNombre">Ingresa la contraseña para entrar.</p><input id="modalPasswordInput" type="password" placeholder="Contraseña"><div class="modal-actions"><button class="btn btn-secondary" onclick="cerrarModalPassword()">Cancelar</button><button class="btn btn-primary" onclick="validarPasswordCanal()">Entrar</button></div><div id="modalMsg" class="msg"></div></div></div>
 <script>
 const API="https://radiapp-backend.onrender.com";
