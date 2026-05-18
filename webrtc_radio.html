@@ -171,6 +171,23 @@ body::before{
 
             <section class="card ptt-card">
                 <div class="ptt-wrap"><button id="ptt">PTT</button></div>
+                <div style="margin-bottom:18px;">
+    <button
+        onclick="enviarAlerta()"
+        style="
+            background:#f97316;
+            color:white;
+            border:none;
+            border-radius:12px;
+            padding:14px 22px;
+            font-weight:900;
+            cursor:pointer;
+            font-size:15px;
+            box-shadow:0 0 20px rgba(249,115,22,.35);
+        ">
+        🔔 ALERTAR CANAL
+    </button>
+</div>
                 <div id="estado"><span class="status-dot"></span><span>Desconectado</span></div>
             </section>
 
@@ -215,7 +232,11 @@ let audioCtx = null;
 let usuariosActualesCanal = [];
 let timerInicioWebRTC = null;
 let soyIniciadorWebRTC = false;
+const audioPTT = new Audio("ptt.mp3");
+const audioAlerta = new Audio("alerta.mp3");
 
+audioPTT.volume = 1.0;
+audioAlerta.volume = 1.0;
 const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
 const btn = document.getElementById("ptt");
 const connectBtn = document.getElementById("connectBtn");
@@ -561,7 +582,14 @@ socket.on("usuarios_canal", (data) => {
 });
 socket.on("mensaje_canal", (data) => log(data.mensaje));
 socket.on("ptt_estado", (data) => log(data.mensaje));
+socket.on("alerta_canal", (data) => {
 
+    playTone("notify");
+
+    estado("Alerta recibida de " + data.usuario, "busy");
+
+    log("🔔 " + data.usuario + " envió una alerta al canal.");
+});
 function bloquearPTT(bloquear){
     btn.classList.toggle("locked", bloquear);
 }
@@ -758,11 +786,26 @@ function prepararAudio(){
 }
 
 function playTone(tipo){
+
     const enabled = document.getElementById("soundEnabled");
     if(enabled && !enabled.checked) return;
 
     try{
+
+        if(tipo === "tx" || tipo === "rx"){
+            audioPTT.currentTime = 0;
+            audioPTT.play().catch(()=>{});
+            return;
+        }
+
+        if(tipo === "notify"){
+            audioAlerta.currentTime = 0;
+            audioAlerta.play().catch(()=>{});
+            return;
+        }
+
         prepararAudio();
+
         if(!audioCtx) return;
 
         if(audioCtx.state === "suspended"){
@@ -770,15 +813,15 @@ function playTone(tipo){
         }
 
         const tonos = {
-            tx: [880, 0.055],
-            rx: [520, 0.055],
             busy: [180, 0.16],
             connect: [760, 0.08],
-            disconnect: [260, 0.12],
-            notify: [640, 0.07]
+            disconnect: [260, 0.12]
         };
 
-        const cfg = tonos[tipo] || tonos.notify;
+        const cfg = tonos[tipo];
+
+        if(!cfg) return;
+
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
 
@@ -794,6 +837,7 @@ function playTone(tipo){
 
         osc.start();
         osc.stop(audioCtx.currentTime + cfg[1] + 0.015);
+
     }catch(e){}
 }
 
@@ -855,7 +899,19 @@ async function forzarReconexionVoz(){
     }, 1500);
 }
 
+function enviarAlerta(){
 
+    if(!radioConectada) return;
+
+    playTone("notify");
+
+    socket.emit("alerta_canal", {
+        canal_id: canal,
+        usuario: getUsuario()
+    });
+
+    log("Alerta enviada al canal.");
+}
 function volverDashboard(){ window.location.href = "dashboard.html"; }
 
 window.addEventListener("beforeunload", () => {
