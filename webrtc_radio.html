@@ -740,16 +740,17 @@ function playTone(tipo){
 
     try{
         if(tipo === "notify"){
-            if(window.AndroidAudio && AndroidAudio.reproducirAlerta){
-                AndroidAudio.reproducirAlerta();
-                return;
-            }
+    audioAlerta.currentTime = 0;
+    audioAlerta.volume = 1.0;
 
-            audioAlerta.currentTime = 0;
-            audioAlerta.volume = 1.0;
-            audioAlerta.play().catch(()=>{});
-            return;
+    audioAlerta.play().catch(() => {
+        if(window.AndroidAudio && AndroidAudio.reproducirAlerta){
+            AndroidAudio.reproducirAlerta();
         }
+    });
+
+    return;
+}
 
         if(tipo === "tx" || tipo === "rx"){
             if(window.AndroidAudio && AndroidAudio.reproducirPTT){
