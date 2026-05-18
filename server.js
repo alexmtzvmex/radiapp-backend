@@ -338,6 +338,16 @@ io.on("connection", (socket) => {
     });
 
     socket.on("webrtc_signal", (data = {}) => {
+        socket.on("alerta_canal", (data = {}) => {
+
+    const canalId = String(data.canal_id || socket.data.canalId || "1");
+
+    io.to(getSala(canalId)).emit("alerta_canal", {
+        usuario: data.usuario || socket.data.usuario || "Usuario",
+        canal_id: canalId
+    });
+
+});
         const canalId = String(data.canal_id || socket.data.canalId || "1");
 
         socket.to(getSala(canalId)).emit("webrtc_signal", {
