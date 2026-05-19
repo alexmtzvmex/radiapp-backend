@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>RadiApp Radio</title>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon.png">
+<meta name="theme-color" content="#020817">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+:root{
+    --bg:#020817;
+    --panel:#071121;
+    --panel2:#0b172a;
+    --card:#081324;
+    --line:rgba(92,242,214,.16);
+    --line2:rgba(148,163,184,.18);
+    --text:#f8fafc;
+    --muted:#9ca3af;
+    --cyan:#5CF2D6;
+    --cyan2:#19d3c7;
+    --red:#ef2b2d;
+    --green:#22c55e;
+    --orange:#f97316;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Arial, Helvetica, sans-serif;}
+body{overflow-x:hidden;}
+body::before{
+    content:"";position:fixed;inset:-20%;z-index:0;pointer-events:none;
+    background:radial-gradient(circle at 45% 20%, rgba(92,242,214,.14), transparent 26%),
+               radial-gradient(circle at 70% 80%, rgba(92,242,214,.07), transparent 30%),
+               linear-gradient(120deg,#020817,#061326 50%,#020817);
+}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:74px minmax(0,1fr);min-height:100vh;}
+.sidebar{background:rgba(3,10,23,.82);border-right:1px solid rgba(92,242,214,.12);padding:18px 12px;display:flex;flex-direction:column;align-items:center;gap:18px;position:sticky;top:0;height:100vh;}
+.brand-mini{width:42px;height:42px;border-radius:12px;background:rgba(92,242,214,.10);border:1px solid rgba(92,242,214,.25);display:flex;align-items:center;justify-content:center;box-shadow:0 0 24px rgba(92,242,214,.08);}
+.brand-mini img{width:30px;height:30px;border-radius:8px;}
+.nav-btn{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#9ca3af;border:1px solid transparent;background:transparent;}
+.nav-btn.active{background:rgba(92,242,214,.13);color:var(--cyan);border-color:rgba(92,242,214,.20);box-shadow:0 0 16px rgba(92,242,214,.08);}
+.nav-btn svg{width:22px;height:22px;}
+.main{padding:24px 20px 34px;}
+.topbar{max-width:980px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:14px;}
+.logo-row{display:flex;align-items:center;gap:12px;font-weight:900;font-size:24px;}
+.logo-row img{width:36px;height:36px;border-radius:9px;}
+.session{display:flex;align-items:center;gap:12px;color:#d1d5db;font-size:14px;text-align:right;}
+.session strong{display:block;color:var(--cyan);font-size:15px;}
+.btn-top{background:rgba(92,242,214,.10);color:var(--cyan);border:1px solid rgba(92,242,214,.24);border-radius:12px;padding:10px 14px;font-weight:800;cursor:pointer;}
+.shell{max-width:760px;margin:0 auto;display:grid;gap:14px;}
+.card{background:linear-gradient(180deg,rgba(10,24,43,.86),rgba(5,13,28,.92));border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:0 18px 55px rgba(0,0,0,.32);}
+.channel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.channel-title{display:flex;align-items:center;gap:12px;min-width:0;}
+.channel-title .icon{width:40px;height:40px;border-radius:13px;background:rgba(92,242,214,.10);border:1px solid rgba(92,242,214,.22);display:flex;align-items:center;justify-content:center;color:var(--cyan);}
+.channel-title h1{font-size:22px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.channel-title p{margin:3px 0 0;color:var(--muted);font-size:13px;}
+.connection-pill{padding:8px 10px;border-radius:999px;background:rgba(34,197,94,.10);border:1px solid rgba(34,197,94,.22);color:#86efac;font-size:12px;font-weight:800;white-space:nowrap;}
+.connection-pill.off{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.22);color:#fca5a5;}
+.action-card{text-align:center;}
+.connect-btn{width:100%;border:none;border-radius:14px;background:linear-gradient(90deg,var(--cyan),var(--cyan2));color:#03111f;font-size:18px;font-weight:950;padding:16px;cursor:pointer;box-shadow:0 0 26px rgba(92,242,214,.22);}
+.connect-btn:active{transform:scale(.99);}
+.connect-btn.hidden{display:none;}
+.help{font-size:12px;color:#94a3b8;margin:10px 0 0;line-height:1.35;}
+.online-list{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.section-title{display:flex;align-items:center;gap:9px;font-weight:900;font-size:15px;}
+.section-title svg{width:20px;height:20px;color:var(--cyan);}
+.online-user{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border-radius:14px;background:rgba(4,13,29,.72);border:1px solid var(--line2);}
+.online-left{display:flex;align-items:center;gap:10px;min-width:0;}
+.dot{width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 12px rgba(34,197,94,.8);flex:0 0 auto;}
+.dot.talking{background:#ef4444;box-shadow:0 0 14px rgba(239,68,68,.95);}
+.avatar{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(148,163,184,.25);color:#94a3b8;}
+.avatar svg{width:16px;height:16px;}
+.online-name{font-weight:850;color:#f8fafc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.online-state{font-size:11px;color:#5eead4;font-weight:900;white-space:nowrap;}
+.online-state.talking{color:#fb7185;}
+.ptt-card{padding:26px 16px 22px;text-align:center;}
+.ptt-wrap{display:flex;justify-content:center;align-items:center;min-height:250px;}
+#ptt{width:210px;height:210px;border-radius:50%;border:5px solid rgba(255,255,255,.10);background:var(--red);color:white;font-size:39px;font-weight:950;letter-spacing:.5px;cursor:pointer;box-shadow:0 0 42px rgba(239,43,45,.45), inset 0 2px 0 rgba(255,255,255,.20);touch-action:none;user-select:none;transition:.15s ease;}
+#ptt:active{transform:scale(.985);}
+#ptt.talking{background:#16a34a;box-shadow:0 0 48px rgba(34,197,94,.58), inset 0 2px 0 rgba(255,255,255,.20);}
+#ptt.locked{background:#475569;box-shadow:none;cursor:not-allowed;opacity:.68;}
+#estado{display:flex;align-items:center;justify-content:center;gap:8px;font-size:17px;font-weight:900;margin-top:4px;color:#22c55e;min-height:26px;}
+#estado.busy{color:#f97316;}#estado.error{color:#fb7185;}#estado.tx{color:#86efac;}
+.status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:currentColor;box-shadow:0 0 13px currentColor;}
+.log{max-height:180px;overflow:auto;padding-right:4px;margin-top:10px;}
+.log p{display:grid;grid-template-columns:72px 1fr;gap:10px;margin:0;padding:9px 0;border-bottom:1px solid rgba(148,163,184,.08);font-size:12px;color:#e5e7eb;}
+.log time{color:var(--cyan);opacity:.8;}
+.remote-audio{width:100%;margin-top:12px;display:none;}
+.hidden-inputs{display:none;}
+.stability-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;}
+.stability-item{background:rgba(4,13,29,.72);border:1px solid var(--line2);border-radius:14px;padding:10px;text-align:center;}
+.stability-label{font-size:11px;color:#94a3b8;margin-bottom:4px;}
+.stability-value{font-size:13px;font-weight:900;color:#5CF2D6;}
+.sound-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:11px 12px;border-radius:14px;background:rgba(4,13,29,.72);border:1px solid var(--line2);color:#e5e7eb;font-size:13px;font-weight:800;}
+.sound-toggle input{width:18px;height:18px;accent-color:#5CF2D6;}
+.hidden-inputs{display:none;}
+@media(max-width:720px){
+    .app{grid-template-columns:1fr;}
+    .sidebar{display:none;}
+    .main{padding:14px 12px 24px;}
+    .topbar{margin-bottom:12px;}
+    .logo-row{font-size:21px;}
+    .session{display:none;}
+    .channel-head{align-items:flex-start;flex-direction:column;}
+    .connection-pill{align-self:flex-start;}
+    #ptt{width:190px;height:190px;font-size:36px;}
+    .ptt-wrap{min-height:220px;}
+    .log{max-height:150px;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand-mini"><img src="icon.png" alt="RadiApp"></div>
+        <div class="nav-btn active" title="Radio"><svg viewBox="0 0 24 24" fill="none"><path d="M4 11 12 4l8 7v8a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg></div>
+        <div class="nav-btn" title="Usuarios"><svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M3 20c.8-3 2.8-5 6-5s5.2 2 6 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="17" cy="9" r="2.5" stroke="currentColor" stroke-width="2"/><path d="M15 15c2.8.2 4.6 1.8 5.3 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="nav-btn" title="PTT"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" stroke="currentColor" stroke-width="2"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+        <div class="nav-btn" title="Actividad"><svg viewBox="0 0 24 24" fill="none"><path d="M12 8v5l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg></div>
+    </aside>
+
+    <main class="main">
+        <div class="topbar">
+            <div class="logo-row"><img src="icon.png" alt="RadiApp"><span>RadiApp</span></div>
+            <div class="session"><div>Sesión iniciada como:<strong id="usuarioSesion">Usuario</strong></div><button class="btn-top" onclick="volverDashboard()">Dashboard</button></div>
+        </div>
+
+        <div class="shell">
+            <section class="card">
+                <div class="channel-head">
+                    <div class="channel-title">
+                        <div class="icon"><svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 12h2m12 0h2M8 8v8m4-11v14m4-11v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+                        <div><h1 id="canalNombre">Canal</h1><p id="canalSubtitulo">Radio PTT WebRTC</p></div>
+                    </div>
+                    <div id="conexion" class="connection-pill off">Socket conectando...</div>
+                </div>
+                <div class="hidden-inputs"><input id="usuario"><input id="canal" value="1"></div>
+            </section>
+
+            <section class="card action-card">
+                <button id="connectBtn" class="connect-btn" onclick="conectarRadio()">Activar radio y entrar al canal</button>
+                <p class="help">Por seguridad del navegador, toca este botón una vez para autorizar el micrófono y conectar el canal.</p>
+
+                <div class="stability-grid">
+                    <div class="stability-item">
+                        <div class="stability-label">Socket</div>
+                        <div id="socketEstado" class="stability-value">Conectando</div>
+                    </div>
+                    <div class="stability-item">
+                        <div class="stability-label">WebRTC</div>
+                        <div id="rtcEstado" class="stability-value">Sin enlace</div>
+                    </div>
+                    <div class="stability-item">
+                        <div class="stability-label">Red</div>
+                        <div id="redEstado" class="stability-value">Online</div>
+                    </div>
+                </div>
+
+                <label class="sound-toggle">
+                    <span>Sonidos de radio</span>
+                    <input id="soundEnabled" type="checkbox" checked>
+                </label>
+            </section>
+
+            <section class="card">
+                <div class="section-title"><svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M3 20c.8-3 2.8-5 6-5s5.2 2 6 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M16 11h5M18.5 8.5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Usuarios conectados</div>
+                <div id="usuariosOnline" class="online-list"><div class="help">Conecta la radio para ver usuarios online.</div></div>
+            </section>
+
+            <section class="card ptt-card">
+                <div class="ptt-wrap"><button id="ptt">PTT</button></div>
+                <div id="estado"><span class="status-dot"></span><span>Desconectado</span></div>
+            </section>
+
+            <section class="card">
+                <div class="section-title"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13h4l2-6 4 12 2-6h4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Actividad</div>
+                <div id="log" class="log"></div>
+                <audio id="remoteAudio" class="remote-audio" autoplay playsinline controls></audio>
+            </section>
+        </div>
+    </main>
+</div>
+
+<script>
+const API_SOCKET = "https://radiapp-backend.onrender.com";
+const socket = io(API_SOCKET, {
+    transports:["websocket", "polling"],
+    reconnection:true,
+    reconnectionAttempts:Infinity,
+    reconnectionDelay:800,
+    reconnectionDelayMax:5000,
+    timeout:20000
+});
+
+let pc = null;
+let pcs = {};
+let remoteAudios = {};
+let candidatosPendientesPorPeer = {};
+let negociandoPeer = {};
+let peerNames = {};
+let localStream = null;
+let canal = "1";
+let canalNombre = "Canal";
+let canalOcupado = false;
+let ocupadoPor = null;
+let ocupadoSocketId = null;
+let enlaceIniciado = false;
+let estoyEnCanal = false;
+let candidatosPendientes = [];
+let radioConectada = false;
+let pttActivo = false;
+let offerEnCurso = false;
+let reconnectTimer = null;
+let watchdogTimer = null;
+let ultimoRejoin = 0;
+let autoReintentos = 0;
+let audioCtx = null;
+let usuariosActualesCanal = [];
+let timerInicioWebRTC = null;
+let soyIniciadorWebRTC = false;
+
+const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const btn = document.getElementById("ptt");
+const connectBtn = document.getElementById("connectBtn");
+
+initPantalla();
+
+btn.addEventListener("pointerdown", (e) => { e.preventDefault(); setMic(true); });
+btn.addEventListener("pointerup", (e) => { e.preventDefault(); setMic(false); });
+btn.addEventListener("pointercancel", (e) => { e.preventDefault(); setMic(false); });
+btn.addEventListener("pointerleave", (e) => { e.preventDefault(); if(pttActivo) setMic(false); });
+
+socket.on("connect", () => {
+    setConexion("Socket conectado", true);
+    setMiniEstado("socketEstado", "Conectado", true);
+    log("Socket conectado: " + socket.id);
+    playTone("connect");
+
+    if (radioConectada && estoyEnCanal) {
+        reingresarCanal("reconexión de socket");
+    }
+});
+
+socket.on("disconnect", () => {
+    setConexion("Socket desconectado", false);
+    setMiniEstado("socketEstado", "Desconectado", false);
+    estado("Sin conexión al servidor", "error");
+    playTone("disconnect");
+});
+
+socket.io.on("reconnect_attempt", () => {
+    setConexion("Reconectando...", false);
+    setMiniEstado("socketEstado", "Reconectando", false);
+});
+
+socket.io.on("reconnect", () => {
+    setConexion("Socket conectado", true);
+    setMiniEstado("socketEstado", "Conectado", true);
+    log("Socket reconectado.");
+    playTone("connect");
+});
+
+async function conectarRadio(){
+    try{
+        prepararAudio();
+        await activar();
+        await entrar();
+        connectBtn.classList.add("hidden");
+        radioConectada = true;
+        iniciarWatchdog();
+        playTone("connect");
+    }catch(error){
+        alert("No se pudo conectar la radio: " + error.message);
+    }
+}
+
+async function activar(){
+    if(localStream) return;
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
+    });
+
+    localStream.getAudioTracks().forEach(track => track.enabled = false);
+    estado("Micrófono listo", "free");
+    log("Micrófono activado correctamente.");
+}
+
+async function entrar(){
+    if(!localStream) await activar();
+    if(!localStream) return;
+
+    canal = document.getElementById("canal").value || canal || "1";
+    estoyEnCanal = true;
+    emitirEntradaCanal();
+    estado("Dentro de " + canalNombre + ". Esperando enlace...", "free");
+    log(getUsuario() + " entró al canal " + canalNombre);
+
+    setTimeout(() => {
+        evaluarInicioWebRTC();
+    }, 1500);
+}
+
+function emitirEntradaCanal(){
+    socket.emit("entrar_canal", { canal_id: canal, usuario: getUsuario() });
+}
+
+
+function contarPeersActivos(){
+    return Object.keys(pcs).filter(id => pcs[id]).length;
+}
+
+function obtenerPeerIds(){
+    return usuariosActualesCanal
+        .filter(u => u.socket_id && u.socket_id !== socket.id)
+        .map(u => String(u.socket_id))
+        .sort();
+}
+
+async function crearPeer(peerId, peerName){
+    peerId = String(peerId || "");
+    if(!peerId) return null;
+    if(pcs[peerId]) return pcs[peerId];
+
+    if(!localStream) await activar();
+
+    peerNames[peerId] = peerName || peerNames[peerId] || "Usuario remoto";
+
+    const nuevoPC = new RTCPeerConnection(config);
+    pcs[peerId] = nuevoPC;
+    if(!pc) pc = nuevoPC;
+
+    candidatosPendientesPorPeer[peerId] = candidatosPendientesPorPeer[peerId] || [];
+
+    localStream.getTracks().forEach(track => nuevoPC.addTrack(track, localStream));
+
+    nuevoPC.ontrack = (event) => {
+        let audio = remoteAudios[peerId];
+
+        if(!audio){
+            audio = document.createElement("audio");
+            audio.autoplay = true;
+            audio.playsInline = true;
+            audio.controls = true;
+            audio.className = "remote-audio";
+            audio.style.display = "none";
+            audio.dataset.peerId = peerId;
+
+            const logEl = document.getElementById("log");
+            if(logEl && logEl.parentElement){
+                logEl.parentElement.appendChild(audio);
+            }else{
+                document.body.appendChild(audio);
+            }
+
+            remoteAudios[peerId] = audio;
+        }
+
+        audio.srcObject = event.streams[0];
+        audio.muted = false;
+        audio.volume = 1.0;
+
+        audio.play().then(() => {
+            audio.style.display = "none";
+        }).catch(() => {
+            audio.style.display = "block";
+            log("El navegador bloqueó audio remoto de " + (peerNames[peerId] || "usuario") + ". Toca PLAY una vez.");
+        });
+
+        estado("Audio remoto listo.", "free");
+        setMiniEstado("rtcEstado", "connected", true);
+        log("Audio remoto recibido de " + (peerNames[peerId] || "usuario") + ".");
+    };
+
+    nuevoPC.onicecandidate = (event) => {
+        if(event.candidate){
+            socket.emit("webrtc_signal", {
+                canal_id: canal,
+                usuario: getUsuario(),
+                target: peerId,
+                type: "candidate",
+                payload: event.candidate
+            });
+        }
+    };
+
+    nuevoPC.onconnectionstatechange = () => {
+        log("WebRTC con " + (peerNames[peerId] || peerId) + ": " + nuevoPC.connectionState);
+
+        if(nuevoPC.connectionState === "connected"){
+            autoReintentos = 0;
+            estado("Enlace conectado. Mantén PTT para hablar.", "free");
+            setMiniEstado("rtcEstado", "connected", true);
+        }
+
+        if(nuevoPC.connectionState === "failed" || nuevoPC.connectionState === "closed"){
+            cerrarPeer(peerId);
+            if(radioConectada && estoyEnCanal){
+                setTimeout(() => evaluarInicioWebRTC(), 1200);
+            }
+        }
+    };
+
+    nuevoPC.oniceconnectionstatechange = () => {
+        if(!pcs[peerId]) return;
+        if(["failed","closed"].includes(nuevoPC.iceConnectionState)){
+            cerrarPeer(peerId);
+            setTimeout(() => evaluarInicioWebRTC(), 1200);
+        }
+    };
+
+    return nuevoPC;
+}
+
+async function crearPC(){
+    const peers = obtenerPeerIds();
+    if(peers.length === 0) return null;
+    return await crearPeer(peers[0]);
+}
+
+function cerrarPeer(peerId){
+    peerId = String(peerId || "");
+    if(!peerId) return;
+
+    if(pcs[peerId]){
+        try{ pcs[peerId].close(); }catch(e){}
+        delete pcs[peerId];
+    }
+
+    if(remoteAudios[peerId]){
+        try{
+            remoteAudios[peerId].pause();
+            remoteAudios[peerId].srcObject = null;
+            remoteAudios[peerId].remove();
+        }catch(e){}
+        delete remoteAudios[peerId];
+    }
+
+    delete candidatosPendientesPorPeer[peerId];
+    delete negociandoPeer[peerId];
+
+    const restantes = Object.keys(pcs);
+    pc = restantes.length ? pcs[restantes[0]] : null;
+
+    if(restantes.length === 0){
+        enlaceIniciado = false;
+        offerEnCurso = false;
+        candidatosPendientes = [];
+        soyIniciadorWebRTC = false;
+    }
+}
+
+function cerrarPC(){
+    Object.keys(pcs).forEach(peerId => cerrarPeer(peerId));
+    pc = null;
+    enlaceIniciado = false;
+    offerEnCurso = false;
+    candidatosPendientes = [];
+    soyIniciadorWebRTC = false;
+}
+
+async function iniciarEnlaceVoz(peerId){
+    if(!estoyEnCanal){ log("Primero conecta la radio al canal."); return; }
+
+    const peers = peerId ? [String(peerId)] : obtenerPeerIds();
+
+    if(peers.length === 0){
+        log("Esperando otros usuarios para crear enlaces de voz.");
+        return;
+    }
+
+    for(const destino of peers){
+        if(!destino || destino === socket.id) continue;
+        if(pcs[destino] || negociandoPeer[destino]) continue;
+
+        // Regla estable por par: el socket con ID menor crea la oferta.
+        if(String(socket.id) > String(destino)){
+            log("Esperando oferta WebRTC de " + (peerNames[destino] || "usuario remoto") + ".");
+            continue;
+        }
+
+        negociandoPeer[destino] = true;
+        offerEnCurso = true;
+        enlaceIniciado = true;
+
+        try{
+            const peer = await crearPeer(destino);
+            if(!peer) continue;
+
+            const offer = await peer.createOffer({ offerToReceiveAudio: true });
+            await peer.setLocalDescription(offer);
+
+            socket.emit("webrtc_signal", {
+                canal_id: canal,
+                usuario: getUsuario(),
+                target: destino,
+                type: "offer",
+                payload: offer
+            });
+
+            estado("Oferta WebRTC enviada. Esperando respuesta...", "busy");
+            setMiniEstado("rtcEstado", "Negociando", false);
+            log("Oferta WebRTC enviada a " + (peerNames[destino] || destino) + ".");
+
+        }catch(error){
+            log("Error creando oferta WebRTC con " + destino + ": " + error.message);
+            cerrarPeer(destino);
+            estado("Error creando enlace de voz.", "error");
+        }finally{
+            setTimeout(() => {
+                delete negociandoPeer[destino];
+                offerEnCurso = Object.keys(negociandoPeer).length > 0;
+            }, 1500);
+        }
+    }
+}
+
+async function reiniciarEnlace(){
+    log("Reiniciando todos los enlaces de voz...");
+    cerrarPC();
+    await iniciarEnlaceVoz();
+}
+
+socket.on("usuario_entro", async (data) => {
+    if(!estoyEnCanal) return;
+    if(data.socket_id) peerNames[String(data.socket_id)] = data.usuario || "Usuario remoto";
+    log((data.usuario || "Usuario") + " entró al canal. Preparando enlace multipunto...");
+    setTimeout(() => evaluarInicioWebRTC(), 900);
+});
+
+socket.on("webrtc_signal", async (data) => {
+    if(!radioConectada){
+        log("Se recibió señal WebRTC, pero la radio aún no está activada.");
+        return;
+    }
+
+    const peerId = String(data.from || "");
+    if(!peerId || peerId === socket.id) return;
+
+    peerNames[peerId] = data.usuario || peerNames[peerId] || "Usuario remoto";
+
+    try{
+        if(data.type === "offer"){
+            log("Oferta recibida de " + (data.usuario || peerId));
+
+            if(pcs[peerId]){
+                cerrarPeer(peerId);
+                await new Promise(resolve => setTimeout(resolve, 250));
+            }
+
+            const peer = await crearPeer(peerId, data.usuario);
+            await peer.setRemoteDescription(new RTCSessionDescription(data.payload));
+
+            const pendientes = candidatosPendientesPorPeer[peerId] || [];
+            for(const c of pendientes){
+                try{ await peer.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
+            }
+
+            candidatosPendientesPorPeer[peerId] = [];
+
+            const answer = await peer.createAnswer();
+            await peer.setLocalDescription(answer);
+
+            socket.emit("webrtc_signal", {
+                canal_id: canal,
+                usuario: getUsuario(),
+                target: peerId,
+                type: "answer",
+                payload: answer
+            });
+
+            enlaceIniciado = true;
+            offerEnCurso = false;
+            estado("Enlace de voz respondido.", "free");
+            setMiniEstado("rtcEstado", "Respondiendo", false);
+            log("Respuesta WebRTC enviada a " + (data.usuario || peerId) + ".");
+            return;
+        }
+
+        if(data.type === "answer"){
+            log("Respuesta recibida de " + (data.usuario || peerId));
+
+            const peer = pcs[peerId];
+
+            if(peer && peer.signalingState === "have-local-offer"){
+                await peer.setRemoteDescription(new RTCSessionDescription(data.payload));
+
+                const pendientes = candidatosPendientesPorPeer[peerId] || [];
+                for(const c of pendientes){
+                    try{ await peer.addIceCandidate(new RTCIceCandidate(c)); }catch(e){}
+                }
+
+                candidatosPendientesPorPeer[peerId] = [];
+                delete negociandoPeer[peerId];
+                offerEnCurso = Object.keys(negociandoPeer).length > 0;
+                enlaceIniciado = true;
+                estado("Enlace conectado. Mantén PTT para hablar.", "free");
+                setMiniEstado("rtcEstado", "connected", true);
+            }else{
+                log("Respuesta recibida fuera de estado esperado. Se ignora.");
+            }
+
+            return;
+        }
+
+        if(data.type === "candidate"){
+            const peer = pcs[peerId];
+
+            if(peer && peer.remoteDescription){
+                await peer.addIceCandidate(new RTCIceCandidate(data.payload));
+            }else{
+                candidatosPendientesPorPeer[peerId] = candidatosPendientesPorPeer[peerId] || [];
+                candidatosPendientesPorPeer[peerId].push(data.payload);
+            }
+        }
+
+    }catch(error){
+        log("Error WebRTC con " + peerId + ": " + error.message);
+        cerrarPeer(peerId);
+        setMiniEstado("rtcEstado", contarPeersActivos() > 0 ? "connected" : "Sin enlace", contarPeersActivos() > 0);
+    }
+});
+
+function setMic(active){
+    if(!radioConectada || !localStream){ log("Primero activa la radio."); return; }
+    if(contarPeersActivos() === 0){ log("Aún no hay enlace de voz. Espera a otro usuario o reintenta."); return; }
+
+    if(active && canalOcupado && ocupadoSocketId && ocupadoSocketId !== socket.id){
+        bloquearPTT(true);
+        playTone("busy");
+        log("Canal ocupado por " + ocupadoPor + ". Espera a que termine.");
+        return;
+    }
+
+    pttActivo = active;
+    localStream.getAudioTracks().forEach(track => track.enabled = active);
+    btn.classList.toggle("talking", active);
+    playTone(active ? "tx" : "rx");
+
+    socket.emit(active ? "ptt_inicio" : "ptt_fin", { canal_id: canal, usuario: getUsuario() });
+    estado(active ? getUsuario() + " hablando..." : "Canal libre", active ? "tx" : "free");
+}
+
+socket.on("canal_ocupado", (data) => {
+    canalOcupado = !!data.ocupado;
+    ocupadoPor = data.usuario || null;
+    ocupadoSocketId = data.socket_id || null;
+
+    if(canalOcupado && ocupadoSocketId !== socket.id){
+        bloquearPTT(true);
+        estado("Hablando: " + ocupadoPor, "busy");
+        if(pttActivo) setMic(false);
+    }else{
+        bloquearPTT(false);
+        if(!pttActivo) estado("Canal libre", "free");
+    }
+});
+
+socket.on("ptt_denegado", (data) => {
+    playTone("busy");
+    if(pttActivo) setMic(false);
+    canalOcupado = true;
+    ocupadoPor = data.usuario || "otro usuario";
+    ocupadoSocketId = data.socket_id || null;
+    bloquearPTT(true);
+    estado("Hablando: " + ocupadoPor, "busy");
+    log(data.mensaje || "Canal ocupado.");
+});
+
+socket.on("usuarios_canal", (data) => {
+    usuariosActualesCanal = data.usuarios || [];
+
+    usuariosActualesCanal.forEach(u => {
+        if(u.socket_id) peerNames[String(u.socket_id)] = u.usuario || "Usuario remoto";
+    });
+
+    const vivos = new Set(obtenerPeerIds());
+    Object.keys(pcs).forEach(peerId => {
+        if(!vivos.has(peerId)){
+            cerrarPeer(peerId);
+        }
+    });
+
+    renderUsuariosOnline(usuariosActualesCanal);
+    evaluarInicioWebRTC();
+});
+socket.on("mensaje_canal", (data) => log(data.mensaje));
+socket.on("ptt_estado", (data) => log(data.mensaje));
+
+function bloquearPTT(bloquear){
+    btn.classList.toggle("locked", bloquear);
+}
+
+function renderUsuariosOnline(usuarios){
+    const contenedor = document.getElementById("usuariosOnline");
+    if(!usuarios || usuarios.length === 0){
+        contenedor.innerHTML = `<div class="help">Aún no hay usuarios en el canal.</div>`;
+        return;
+    }
+    contenedor.innerHTML = "";
+    usuarios.forEach((u) => {
+        const hablando = !!u.hablando;
+        const nombre = u.usuario || "Usuario";
+        const div = document.createElement("div");
+        div.className = "online-user";
+        div.innerHTML = `
+            <div class="online-left">
+                <span class="dot ${hablando ? "talking" : ""}"></span>
+                <span class="avatar"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 21c1.4-4 4.2-6 8-6s6.6 2 8 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+                <span class="online-name">${escapeHtml(nombre)}</span>
+            </div>
+            <span class="online-state ${hablando ? "talking" : ""}">${hablando ? "HABLANDO" : "ONLINE"}</span>`;
+        contenedor.appendChild(div);
+    });
+}
+
+function initPantalla(){
+    const userData = localStorage.getItem("radiapp_user");
+    if(!userData){ window.location.href = "login.html"; return; }
+
+    let user = {};
+    try{ user = JSON.parse(userData); }catch(e){}
+
+    const nombreUsuario = user.nombre || user.correo || "Usuario";
+    document.getElementById("usuario").value = nombreUsuario;
+    document.getElementById("usuarioSesion").innerText = nombreUsuario;
+
+    const params = new URLSearchParams(window.location.search);
+    const canalUrl = params.get("canal_id");
+    const canalData = localStorage.getItem("radiapp_canal");
+    let canalObj = {};
+    if(canalData){ try{ canalObj = JSON.parse(canalData); }catch(e){} }
+
+    canal = String(canalUrl || canalObj.id || "1");
+    canalNombre = canalObj.nombre_canal || ("Canal " + canal);
+
+    document.getElementById("canal").value = canal;
+    document.getElementById("canalNombre").innerText = canalNombre;
+    document.getElementById("canalSubtitulo").innerText = "Canal ID " + canal + " · Radio PTT WebRTC";
+    estado("Desconectado", "error");
+    setMiniEstado("redEstado", navigator.onLine ? "Online" : "Offline", navigator.onLine);
+    setMiniEstado("socketEstado", socket.connected ? "Conectado" : "Conectando", socket.connected);
+    setMiniEstado("rtcEstado", "Sin enlace", false);
+}
+
+function getUsuario(){
+    return document.getElementById("usuario").value || "Usuario";
+}
+
+function estado(texto, tipo){
+    const el = document.getElementById("estado");
+    el.className = tipo || "";
+    el.innerHTML = `<span class="status-dot"></span><span>${escapeHtml(texto)}</span>`;
+}
+
+function setConexion(texto, ok){
+    const el = document.getElementById("conexion");
+    el.innerText = texto;
+    el.className = "connection-pill" + (ok ? "" : " off");
+}
+
+function log(texto){
+    const logEl = document.getElementById("log");
+    const p = document.createElement("p");
+    const t = new Date().toLocaleTimeString("es-MX", { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+    p.innerHTML = `<time>${t}</time><span>${escapeHtml(texto)}</span>`;
+    logEl.appendChild(p);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function escapeHtml(texto){
+    return String(texto ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+
+function reingresarCanal(motivo){
+    if(!radioConectada || !estoyEnCanal) return;
+
+    const ahora = Date.now();
+    if(ahora - ultimoRejoin < 1200) return;
+    ultimoRejoin = ahora;
+
+    log("Reingresando al canal por " + motivo + "...");
+    emitirEntradaCanal();
+
+    evaluarInicioWebRTC();
+}
+
+function programarReconexionWebRTC(motivo){
+    if(!radioConectada || !estoyEnCanal) return;
+    if(reconnectTimer) return;
+
+    autoReintentos++;
+    const espera = Math.min(900 + (autoReintentos * 600), 5000);
+
+    setMiniEstado("rtcEstado", "Reintentando", false);
+    log("Programando reconexión WebRTC por " + motivo + " en " + Math.round(espera/1000) + "s.");
+
+    reconnectTimer = setTimeout(async () => {
+        reconnectTimer = null;
+
+        try{
+            cerrarPC();
+            if(socket.connected){
+                emitirEntradaCanal();
+            }
+            evaluarInicioWebRTC();
+        }catch(error){
+            log("Error en reconexión automática: " + error.message);
+            programarReconexionWebRTC("error de reconexión");
+        }
+    }, espera);
+}
+
+function iniciarWatchdog(){
+    if(watchdogTimer) clearInterval(watchdogTimer);
+
+    watchdogTimer = setInterval(() => {
+        setMiniEstado("redEstado", navigator.onLine ? "Online" : "Offline", navigator.onLine);
+
+        if(!radioConectada) return;
+
+        if(!socket.connected){
+            setConexion("Reconectando...", false);
+            setMiniEstado("socketEstado", "Reconectando", false);
+            try{ socket.connect(); }catch(e){}
+            return;
+        }
+
+        if(estoyEnCanal){
+            const hayFallidos = Object.values(pcs).some(p => p && ["failed","closed"].includes(p.connectionState));
+            if(hayFallidos){
+                programarReconexionWebRTC("watchdog");
+            }else{
+                evaluarInicioWebRTC();
+            }
+        }
+
+    }, 7000);
+}
+
+window.addEventListener("online", () => {
+    setMiniEstado("redEstado", "Online", true);
+    log("Red recuperada. Reintentando conexión...");
+    playTone("connect");
+    try{ socket.connect(); }catch(e){}
+    reingresarCanal("red recuperada");
+    programarReconexionWebRTC("red recuperada");
+});
+
+window.addEventListener("offline", () => {
+    setMiniEstado("redEstado", "Offline", false);
+    estado("Sin red. Esperando conexión...", "error");
+    playTone("disconnect");
+    log("El dispositivo quedó sin red.");
+});
+
+document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible" && radioConectada){
+        log("App visible. Verificando conexión...");
+        if(!socket.connected){
+            try{ socket.connect(); }catch(e){}
+        }
+        reingresarCanal("retorno a pantalla");
+    }
+});
+
+function setMiniEstado(id, texto, ok){
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.innerText = texto;
+    el.style.color = ok ? "#5CF2D6" : "#fb7185";
+}
+
+function prepararAudio(){
+    if(audioCtx) return;
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if(AudioContext){
+        audioCtx = new AudioContext();
+    }
+}
+
+function playTone(tipo){
+    const enabled = document.getElementById("soundEnabled");
+    if(enabled && !enabled.checked) return;
+
+    try{
+        prepararAudio();
+        if(!audioCtx) return;
+
+        if(audioCtx.state === "suspended"){
+            audioCtx.resume().catch(() => {});
+        }
+
+        const tonos = {
+            tx: [880, 0.055],
+            rx: [520, 0.055],
+            busy: [180, 0.16],
+            connect: [760, 0.08],
+            disconnect: [260, 0.12],
+            notify: [640, 0.07]
+        };
+
+        const cfg = tonos[tipo] || tonos.notify;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = "sine";
+        osc.frequency.value = cfg[0];
+
+        gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.045, audioCtx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + cfg[1]);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + cfg[1] + 0.015);
+    }catch(e){}
+}
+
+
+
+function evaluarInicioWebRTC(){
+    if(!radioConectada || !estoyEnCanal || !socket.connected) return;
+
+    const peers = obtenerPeerIds();
+
+    if(peers.length < 1){
+        setMiniEstado("rtcEstado", "Esperando usuarios", false);
+        return;
+    }
+
+    if(timerInicioWebRTC) clearTimeout(timerInicioWebRTC);
+
+    timerInicioWebRTC = setTimeout(async () => {
+        const pendientes = peers.filter(peerId => !pcs[peerId] && !negociandoPeer[peerId]);
+
+        if(pendientes.length === 0){
+            if(contarPeersActivos() > 0) setMiniEstado("rtcEstado", "connected", true);
+            return;
+        }
+
+        log("Verificando enlaces multipunto WebRTC...");
+        await iniciarEnlaceVoz();
+    }, 900);
+}
+
+async function forzarReconexionVoz(){
+    log("Reinicio manual de todos los enlaces de voz...");
+    playTone("notify");
+
+    if(timerInicioWebRTC){
+        clearTimeout(timerInicioWebRTC);
+        timerInicioWebRTC = null;
+    }
+
+    cerrarPC();
+    enlaceIniciado = false;
+    offerEnCurso = false;
+    candidatosPendientes = [];
+    candidatosPendientesPorPeer = {};
+    negociandoPeer = {};
+
+    estado("Reiniciando enlaces de voz...", "busy");
+    setMiniEstado("rtcEstado", "Reiniciando", false);
+
+    if(socket.connected && estoyEnCanal){
+        emitirEntradaCanal();
+    }
+
+    setTimeout(() => {
+        evaluarInicioWebRTC();
+    }, 1500);
+}
+
+function volverDashboard(){ window.location.href = "dashboard.html"; }
+
+window.addEventListener("beforeunload", () => {
+    try{
+        if(pttActivo) socket.emit("ptt_fin", { canal_id: canal, usuario: getUsuario() });
+        socket.emit("salir_canal");
+    }catch(e){}
+});
+
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js"); }
+</script>
+</body>
+</html>
