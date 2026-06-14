@@ -356,7 +356,6 @@ io.on("connection", (socket) => {
 
         socket.to(getSala(canalId)).emit("webrtc_signal", signal);
     });
-    });
 
     socket.on("audio_completo", (data = {}) => {
         const canalId = String(data.canal_id || socket.data.canalId || "1");
