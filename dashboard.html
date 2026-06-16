@@ -2,12 +2,18 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RadiApp Dashboard</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
 <meta name="theme-color" content="#020817">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RadiApp">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+
+<title>RadiApp Dashboard</title>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif}
@@ -87,6 +93,15 @@ h1{font-size:34px;margin-bottom:8px}
 }
 .private-join-box input:focus{
     border-color:#fdba74;
+}
+
+
+/* Ajustes PWA iPhone */
+@supports (padding: max(0px)) {
+    body {
+        padding-left: max(env(safe-area-inset-left), 0px);
+        padding-right: max(env(safe-area-inset-right), 0px);
+    }
 }
 
 </style>
@@ -180,32 +195,6 @@ const API = "https://radiapp-backend.onrender.com";
 let usuario = null;
 let canalSeleccionado = null;
 
-function getCanalesAutorizadosKey(){
-    const id = usuario && usuario.id ? usuario.id : "anon";
-    return "radiapp_canales_autorizados_" + id;
-}
-function getCanalesAutorizados(){
-    try{return JSON.parse(localStorage.getItem(getCanalesAutorizadosKey()) || "[]").map(String);}catch(e){return [];}
-}
-function guardarCanalAutorizado(canalId){
-    if(!canalId) return;
-    const lista = getCanalesAutorizados();
-    const id = String(canalId);
-    if(!lista.includes(id)){
-        lista.push(id);
-        localStorage.setItem(getCanalesAutorizadosKey(), JSON.stringify(lista));
-    }
-}
-function canalEstaAutorizado(canal){
-    if(!canal || !canal.id) return false;
-    return Number(canal.autorizado || canal.es_miembro || canal.miembro || 0) === 1 || getCanalesAutorizados().includes(String(canal.id));
-}
-function marcarCanalAutorizadoObjeto(canal){
-    if(canal && canal.id && canalEstaAutorizado(canal)){ canal.autorizado = 1; }
-    return canal;
-}
-
-
 function validarSesion(){
     const token = localStorage.getItem("radiapp_token");
     const userData = localStorage.getItem("radiapp_user");
@@ -282,7 +271,6 @@ async function cargarCanales(){
         msg.innerText = "";
 
         json.canales.forEach(canal => {
-            canal = marcarCanalAutorizadoObjeto(canal);
             const div = document.createElement("div");
             div.className = "channel";
 
@@ -311,6 +299,7 @@ async function cargarCanales(){
 function mostrarEntradaPrivada(){
     const box = document.getElementById("formPrivadoOculto");
     box.style.display = box.style.display === "block" ? "none" : "block";
+
     if(box.style.display === "block"){
         setTimeout(() => document.getElementById("canal_privado_nombre").focus(), 100);
     }
@@ -321,9 +310,22 @@ async function entrarCanalPrivadoOculto(){
     const password = document.getElementById("canal_privado_password").value.trim();
     const msg = document.getElementById("mensaje");
 
-    if(!nombreCanal){ msg.className = "msg error"; msg.innerText = "Ingresa el nombre exacto del canal privado."; return; }
-    if(!password){ msg.className = "msg error"; msg.innerText = "Ingresa la contraseña del canal privado."; return; }
-    if(!usuario || !usuario.id){ cerrarSesion(); return; }
+    if(!nombreCanal){
+        msg.className = "msg error";
+        msg.innerText = "Ingresa el nombre exacto del canal privado.";
+        return;
+    }
+
+    if(!password){
+        msg.className = "msg error";
+        msg.innerText = "Ingresa la contraseña del canal privado.";
+        return;
+    }
+
+    if(!usuario || !usuario.id){
+        cerrarSesion();
+        return;
+    }
 
     msg.className = "msg";
     msg.innerText = "Validando canal privado...";
@@ -332,22 +334,34 @@ async function entrarCanalPrivadoOculto(){
         const res = await fetch(API + "/api/channels/validar-acceso-nombre", {
             method:"POST",
             headers:{ "Content-Type":"application/json" },
-            body:JSON.stringify({ nombre_canal:nombreCanal, usuario_id:usuario.id, password_canal:password })
+            body:JSON.stringify({
+                nombre_canal: nombreCanal,
+                usuario_id: usuario.id,
+                password_canal: password
+            })
         });
+
         const json = await res.json();
+
         if(!json.success){
             msg.className = "msg error";
             msg.innerText = json.error || "No se pudo entrar al canal privado.";
             return;
         }
+
         const canal = json.canal;
-        canal.autorizado = 1;
-        guardarCanalAutorizado(canal.id);
+
         localStorage.setItem("radiapp_canal", JSON.stringify(canal));
+
         msg.className = "msg";
         msg.innerText = "Acceso autorizado. Este canal quedará visible para ti.";
+
         await cargarCanales();
-        setTimeout(() => { window.location.href = "webrtc_radio.html?canal_id=" + encodeURIComponent(canal.id); }, 500);
+
+        setTimeout(() => {
+            window.location.href = "webrtc_radio.html?canal_id=" + encodeURIComponent(canal.id);
+        }, 500);
+
     }catch(error){
         msg.className = "msg error";
         msg.innerText = "Error de conexión con el servidor.";
@@ -426,18 +440,21 @@ async function crearCanal(){
 }
 
 function solicitarAccesoCanal(canal){
-    canalSeleccionado = marcarCanalAutorizadoObjeto(canal);
-    const privado = Number(canalSeleccionado.privado) === 1;
-    const autorizado = canalEstaAutorizado(canalSeleccionado);
-    if(!privado || autorizado){
-        entrarCanal(canalSeleccionado);
+    canalSeleccionado = canal;
+
+    if(Number(canal.privado) !== 1){
+        entrarCanal(canal);
         return;
     }
-    document.getElementById("modalCanalNombre").innerText = "Canal: " + canalSeleccionado.nombre_canal;
+
+    document.getElementById("modalCanalNombre").innerText =
+        "Canal: " + canal.nombre_canal;
+
     document.getElementById("modalPasswordInput").value = "";
     document.getElementById("modalMsg").innerText = "";
     document.getElementById("modalMsg").className = "msg";
     document.getElementById("modalPassword").style.display = "flex";
+
     setTimeout(() => document.getElementById("modalPasswordInput").focus(), 100);
 }
 
@@ -475,13 +492,7 @@ async function validarPasswordCanal(){
         const json = await res.json();
 
         if(json.success){
-            const canalAutorizado = json.canal || canalSeleccionado;
-            canalAutorizado.autorizado = 1;
-            guardarCanalAutorizado(canalAutorizado.id);
-            localStorage.setItem("radiapp_canal", JSON.stringify(canalAutorizado));
-            cerrarModalPassword();
-            await cargarCanales();
-            window.location.href = "webrtc_radio.html?canal_id=" + encodeURIComponent(canalAutorizado.id);
+            entrarCanal(canalSeleccionado);
         }else{
             modalMsg.className = "msg error";
             modalMsg.innerText = json.error || "Contraseña incorrecta.";
@@ -494,7 +505,6 @@ async function validarPasswordCanal(){
 }
 
 function entrarCanal(canal){
-    if(canal && canal.id && Number(canal.autorizado || 0) === 1){ guardarCanalAutorizado(canal.id); }
     localStorage.setItem("radiapp_canal", JSON.stringify(canal));
     window.location.href = "webrtc_radio.html?canal_id=" + encodeURIComponent(canal.id);
 }
@@ -526,7 +536,7 @@ validarSesion();
 cargarCanales();
 
 if("serviceWorker" in navigator){
-    navigator.serviceWorker.register("sw.js");
+    navigator.serviceWorker.register("sw.js").then(reg => reg.update()).catch(() => {});
 }
 </script>
 
