@@ -8,6 +8,7 @@ const db = require("./config/db");
 const authRoutes = require("./routes/auth.routes");
 const adminRoutes = require("./routes/admin.routes");
 const channelRoutes = require("./routes/channels.routes");
+const mensajesRoutes = require("./routes/mensajes.routes");
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +27,7 @@ app.use(express.json({ limit: "20mb" }));
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/channels", channelRoutes);
+app.use("/api/mensajes", mensajesRoutes);
 
 const usuariosPorCanal = {};
 const estadoPorCanal = {};
@@ -516,6 +518,47 @@ setInterval(() => {
 }, 15000);
 
 const PORT = process.env.PORT || 3000;
+
+// Los mensajes de voz grabados no se guardan para siempre: se borran solos
+// después de 72 horas, y además se limita a 100 mensajes por canal como
+// tope de seguridad extra (por si un canal se usa muchísimo).
+const HORAS_RETENCION_MENSAJES = 72;
+const MAX_MENSAJES_POR_CANAL = 100;
+
+async function limpiarMensajesVoz() {
+    try {
+        const [porAntiguedad] = await db.query(
+            `DELETE FROM mensajes_voz WHERE creado_en < DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+            [HORAS_RETENCION_MENSAJES]
+        );
+        if (porAntiguedad.affectedRows > 0) {
+            console.log(`Limpieza: ${porAntiguedad.affectedRows} mensajes de voz vencidos borrados`);
+        }
+
+        const [canales] = await db.query(`SELECT DISTINCT canal_id FROM mensajes_voz`);
+        for (const { canal_id } of canales) {
+            await db.query(
+                `DELETE FROM mensajes_voz
+                 WHERE canal_id = ?
+                 AND id NOT IN (
+                     SELECT id FROM (
+                         SELECT id FROM mensajes_voz
+                         WHERE canal_id = ?
+                         ORDER BY creado_en DESC
+                         LIMIT ?
+                     ) AS conservar
+                 )`,
+                [canal_id, canal_id, MAX_MENSAJES_POR_CANAL]
+            );
+        }
+    } catch (error) {
+        console.error("Error en limpieza de mensajes de voz:", error);
+    }
+}
+
+// Corre una vez al iniciar el servidor y luego cada hora.
+limpiarMensajesVoz();
+setInterval(limpiarMensajesVoz, 60 * 60 * 1000);
 
 server.listen(PORT, () => {
     console.log(`Servidor RadiApp activo en puerto ${PORT}`);
