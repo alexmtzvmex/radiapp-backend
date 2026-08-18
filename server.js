@@ -9,6 +9,8 @@ const authRoutes = require("./routes/auth.routes");
 const adminRoutes = require("./routes/admin.routes");
 const channelRoutes = require("./routes/channels.routes");
 const mensajesRoutes = require("./routes/mensajes.routes");
+const dispositivosRoutes = require("./routes/dispositivos.routes");
+const { inicializarFirebase, notificarCanalOffline } = require("./config/firebase");
 
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +30,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/channels", channelRoutes);
 app.use("/api/mensajes", mensajesRoutes);
+app.use("/api/dispositivos", dispositivosRoutes);
+
+inicializarFirebase();
 
 const usuariosPorCanal = {};
 const estadoPorCanal = {};
@@ -234,12 +239,14 @@ io.on("connection", (socket) => {
     socket.on("entrar_canal", (data = {}) => {
         const canalId = String(data.canal_id || "1");
         const usuario = data.usuario || "Usuario";
+        const usuarioId = Number(data.usuario_id || 0);
 
         quitarUsuarioDeCanales(socket);
 
         socket.join(getSala(canalId));
         socket.data.canalId = canalId;
         socket.data.usuario = usuario;
+        socket.data.usuarioId = usuarioId;
 
         if (!usuariosPorCanal[canalId]) usuariosPorCanal[canalId] = {};
         if (!estadoPorCanal[canalId]) estadoPorCanal[canalId] = { ocupado: false, usuario: null, socket_id: null, inicio: null, prioridad: 0 };
@@ -250,6 +257,7 @@ io.on("connection", (socket) => {
         usuariosPorCanal[canalId][socket.id] = {
             socket_id: socket.id,
             usuario,
+            usuario_id: usuarioId,
             canal_id: canalId,
             hablando: false,
             conectado_en: new Date().toISOString(),
@@ -358,6 +366,15 @@ io.on("connection", (socket) => {
         });
 
         emitirUsuariosCanal(canalId);
+
+        // Avisa por notificación push a quien sea miembro del canal pero no
+        // esté conectado ahorita (los que ya están conectados lo están
+        // escuchando en vivo, no hace falta molestarlos con un push).
+        const usuarioIdQueHabla = Number(data.usuario_id || socket.data.usuarioId || 0);
+        const idsConectados = Object.values(usuariosPorCanal[canalId] || {})
+            .map(u => u.usuario_id)
+            .filter(Boolean);
+        notificarCanalOffline(canalId, usuario, usuarioIdQueHabla, idsConectados);
     });
 
     socket.on("ptt_fin", (data = {}) => {
