@@ -10,6 +10,7 @@ const adminRoutes = require("./routes/admin.routes");
 const channelRoutes = require("./routes/channels.routes");
 const mensajesRoutes = require("./routes/mensajes.routes");
 const dispositivosRoutes = require("./routes/dispositivos.routes");
+const historialRoutes = require("./routes/historial.routes");
 const { inicializarFirebase, notificarCanalOffline } = require("./config/firebase");
 
 const app = express();
@@ -31,6 +32,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/channels", channelRoutes);
 app.use("/api/mensajes", mensajesRoutes);
 app.use("/api/dispositivos", dispositivosRoutes);
+app.use("/api/historial", historialRoutes);
 
 inicializarFirebase();
 
@@ -112,6 +114,17 @@ function liberarCanalPorSocket(socket, canalId, motivo = "liberación automátic
     if (!estado || estado.socket_id !== socket.id) return false;
 
     const usuario = estado.usuario || socket.data.usuario || "Usuario";
+
+    // Cierra el registro de bitácora que se abrió en ptt_inicio, con la
+    // duración real de la transmisión.
+    if (socket.data.sesionVozId) {
+        const duracionSeg = estado.inicio ? Math.round((Date.now() - estado.inicio) / 1000) : null;
+        db.query(
+            `UPDATE sesiones_voz SET fin = NOW(), duracion_segundos = ? WHERE id = ?`,
+            [duracionSeg, socket.data.sesionVozId]
+        ).catch(err => console.error("Error al cerrar sesión de voz:", err));
+        socket.data.sesionVozId = null;
+    }
 
     estadoPorCanal[canalId] = {
         ocupado: false,
@@ -342,6 +355,18 @@ io.on("connection", (socket) => {
             inicio: Date.now(),
             prioridad: Number(data.prioridad || socket.data.prioridad || 0)
         };
+
+        // Bitácora: registra el inicio de esta transmisión (se completa con
+        // fin/duración cuando llegue ptt_fin).
+        const usuarioIdSesion = Number(data.usuario_id || socket.data.usuarioId || 0);
+        if (usuarioIdSesion > 0) {
+            db.query(
+                `INSERT INTO sesiones_voz (canal_id, usuario_id, inicio) VALUES (?, ?, NOW())`,
+                [canalId, usuarioIdSesion]
+            ).then(([resultado]) => {
+                socket.data.sesionVozId = resultado.insertId;
+            }).catch(err => console.error("Error al registrar sesión de voz:", err));
+        }
 
         programarTimeoutPTT(canalId, socket, usuario);
 
