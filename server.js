@@ -359,13 +359,17 @@ io.on("connection", (socket) => {
         // Bitácora: registra el inicio de esta transmisión (se completa con
         // fin/duración cuando llegue ptt_fin).
         const usuarioIdSesion = Number(data.usuario_id || socket.data.usuarioId || 0);
+        console.log(`[bitácora] ptt_inicio de "${usuario}" — usuario_id recibido: ${usuarioIdSesion}`);
         if (usuarioIdSesion > 0) {
             db.query(
                 `INSERT INTO sesiones_voz (canal_id, usuario_id, inicio) VALUES (?, ?, NOW())`,
                 [canalId, usuarioIdSesion]
             ).then(([resultado]) => {
                 socket.data.sesionVozId = resultado.insertId;
-            }).catch(err => console.error("Error al registrar sesión de voz:", err));
+                console.log(`[bitácora] sesión de voz creada, id ${resultado.insertId}`);
+            }).catch(err => console.error("[bitácora] Error al registrar sesión de voz:", err));
+        } else {
+            console.warn(`[bitácora] NO se guardó — usuario_id llegó en 0 o vacío desde la app`);
         }
 
         programarTimeoutPTT(canalId, socket, usuario);
