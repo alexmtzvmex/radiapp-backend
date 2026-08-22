@@ -87,6 +87,7 @@ function programarTimeoutPTT(canalId, socket, usuario) {
             }
 
             io.to(getSala(canalId)).emit("canal_ocupado", {
+                canal_id: canalId,
                 ocupado: false,
                 usuario: null,
                 socket_id: null,
@@ -94,6 +95,7 @@ function programarTimeoutPTT(canalId, socket, usuario) {
             });
 
             io.to(getSala(canalId)).emit("ptt_estado", {
+                canal_id: canalId,
                 mensaje: "Canal liberado automáticamente por tiempo máximo de transmisión.",
                 usuario,
                 hablando: false,
@@ -141,6 +143,7 @@ function liberarCanalPorSocket(socket, canalId, motivo = "liberación automátic
     }
 
     io.to(getSala(canalId)).emit("canal_ocupado", {
+        canal_id: canalId,
         ocupado: false,
         usuario: null,
         socket_id: null,
@@ -148,6 +151,7 @@ function liberarCanalPorSocket(socket, canalId, motivo = "liberación automátic
     });
 
     io.to(getSala(canalId)).emit("ptt_estado", {
+        canal_id: canalId,
         mensaje: usuario + " dejó de hablar. (" + motivo + ")",
         usuario,
         hablando: false,
@@ -168,7 +172,8 @@ function obtenerListaUsuarios(canalId) {
         hablando: !!u.hablando,
         conectado_en: u.conectado_en,
         last_heartbeat: u.last_heartbeat || null,
-        prioridad: u.prioridad || 0
+        prioridad: u.prioridad || 0,
+        silenciado: !!u.silenciado
     }));
 }
 
@@ -249,6 +254,89 @@ app.get("/", async (req, res) => {
 io.on("connection", (socket) => {
     console.log("Usuario conectado:", socket.id);
 
+    // Monitorear un canal significa "recibir avisos de este canal" sin
+    // volverte el canal activo para hablar — así puedes vigilar varios a la
+    // vez. No toca estadoPorCanal ni usuariosPorCanal, solo te mete al
+    // room de Socket.IO para que te lleguen los eventos.
+    // --- Controles de administrador: solo supervisores (prioridad >= 50) o
+    // admins (100) pueden usarlos. Se confía en la prioridad que ya trae el
+    // socket desde que entró al canal (misma regla que ya usa el PTT para
+    // decidir quién puede interrumpir a quién). ---
+    function esAdminOSupervisor(socket) {
+        return Number(socket.data.prioridad || 0) >= 50;
+    }
+
+    socket.on("silenciar_usuario", (data = {}) => {
+        const canalId = String(data.canal_id || socket.data.canalId || "1");
+        const targetId = data.target_socket_id;
+        if (!esAdminOSupervisor(socket) || !targetId) return;
+
+        const entrada = usuariosPorCanal[canalId]?.[targetId];
+        if (!entrada) return;
+        entrada.silenciado = true;
+
+        // Si justo estaba hablando, se le corta de una vez.
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (targetSocket) {
+            liberarCanalPorSocket(targetSocket, canalId, "silenciado por un administrador");
+            targetSocket.emit("silenciado", { canal_id: canalId, silenciado: true });
+        }
+        emitirUsuariosCanal(canalId);
+    });
+
+    socket.on("reactivar_usuario", (data = {}) => {
+        const canalId = String(data.canal_id || socket.data.canalId || "1");
+        const targetId = data.target_socket_id;
+        if (!esAdminOSupervisor(socket) || !targetId) return;
+
+        const entrada = usuariosPorCanal[canalId]?.[targetId];
+        if (!entrada) return;
+        entrada.silenciado = false;
+
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (targetSocket) targetSocket.emit("silenciado", { canal_id: canalId, silenciado: false });
+        emitirUsuariosCanal(canalId);
+    });
+
+    socket.on("quitar_usuario", (data = {}) => {
+        const canalId = String(data.canal_id || socket.data.canalId || "1");
+        const targetId = data.target_socket_id;
+        if (!esAdminOSupervisor(socket) || !targetId) return;
+
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (!targetSocket) return;
+
+        liberarCanalPorSocket(targetSocket, canalId, "expulsado por un administrador");
+        targetSocket.leave(getSala(canalId));
+        delete usuariosPorCanal[canalId]?.[targetId];
+        targetSocket.emit("expulsado_del_canal", { canal_id: canalId });
+        emitirUsuariosCanal(canalId);
+    });
+
+    socket.on("monitorear_canal", (data = {}) => {
+        const canalId = String(data.canal_id || "1");
+        socket.join(getSala(canalId));
+        if (!socket.data.canalesMonitoreados) socket.data.canalesMonitoreados = new Set();
+        socket.data.canalesMonitoreados.add(canalId);
+
+        // Le manda el estado actual de ese canal de una vez, para que la
+        // app no tenga que esperar a que alguien hable para saber si ya
+        // está ocupado.
+        const estado = estadoPorCanal[canalId] || { ocupado: false, usuario: null, socket_id: null };
+        socket.emit("canal_ocupado", {
+            canal_id: canalId,
+            ocupado: !!estado.ocupado,
+            usuario: estado.usuario,
+            socket_id: estado.socket_id
+        });
+    });
+
+    socket.on("dejar_monitoreo", (data = {}) => {
+        const canalId = String(data.canal_id || "1");
+        socket.leave(getSala(canalId));
+        if (socket.data.canalesMonitoreados) socket.data.canalesMonitoreados.delete(canalId);
+    });
+
     socket.on("entrar_canal", (data = {}) => {
         const canalId = String(data.canal_id || "1");
         const usuario = data.usuario || "Usuario";
@@ -290,6 +378,7 @@ io.on("connection", (socket) => {
 
         const estado = estadoPorCanal[canalId];
         socket.emit("canal_ocupado", {
+            canal_id: canalId,
             ocupado: !!estado.ocupado,
             usuario: estado.usuario,
             socket_id: estado.socket_id
@@ -301,6 +390,16 @@ io.on("connection", (socket) => {
     socket.on("ptt_inicio", (data = {}) => {
         const canalId = String(data.canal_id || socket.data.canalId || "1");
         const usuario = data.usuario || socket.data.usuario || "Usuario";
+
+        if (usuariosPorCanal[canalId]?.[socket.id]?.silenciado) {
+            socket.emit("ptt_denegado", {
+                ocupado: false,
+                usuario: null,
+                socket_id: null,
+                mensaje: "Un administrador te silenció en este canal"
+            });
+            return;
+        }
 
         if (!estadoPorCanal[canalId]) estadoPorCanal[canalId] = { ocupado: false, usuario: null, socket_id: null, inicio: null, prioridad: 0 };
         const estado = estadoPorCanal[canalId];
@@ -315,6 +414,7 @@ io.on("connection", (socket) => {
                 if (socketAnterior) {
                     socketAnterior.emit("ptt_interrumpido", {
                         canal_id: canalId,
+                        canal_id: canalId,
                         usuario: estado.usuario,
                         nuevo_usuario: usuario,
                         motivo: "prioridad_superior"
@@ -328,6 +428,7 @@ io.on("connection", (socket) => {
                 limpiarTimerPTT(canalId);
 
                 io.to(getSala(canalId)).emit("ptt_estado", {
+                    canal_id: canalId,
                     mensaje: usuario + " tomó prioridad del canal.",
                     usuario,
                     hablando: true,
@@ -338,6 +439,7 @@ io.on("connection", (socket) => {
 
             } else {
                 socket.emit("ptt_denegado", {
+                    canal_id: canalId,
                     ocupado: true,
                     usuario: estado.usuario,
                     socket_id: estado.socket_id,
@@ -381,6 +483,7 @@ io.on("connection", (socket) => {
         }
 
         io.to(getSala(canalId)).emit("canal_ocupado", {
+            canal_id: canalId,
             ocupado: true,
             usuario,
             socket_id: socket.id,
@@ -388,6 +491,7 @@ io.on("connection", (socket) => {
         });
 
         io.to(getSala(canalId)).emit("ptt_estado", {
+            canal_id: canalId,
             mensaje: usuario + " está hablando...",
             usuario,
             hablando: true,
@@ -413,6 +517,7 @@ io.on("connection", (socket) => {
 
         if (estado && estado.ocupado && estado.socket_id !== socket.id) {
             socket.emit("ptt_denegado", {
+                canal_id: canalId,
                 ocupado: true,
                 usuario: estado.usuario,
                 socket_id: estado.socket_id,
@@ -535,6 +640,7 @@ setInterval(() => {
                         limpiarTimerPTT(canalId);
 
                         io.to(getSala(canalId)).emit("canal_ocupado", {
+                            canal_id: canalId,
                             ocupado: false,
                             usuario: null,
                             socket_id: null,
@@ -542,6 +648,7 @@ setInterval(() => {
                         });
 
                         io.to(getSala(canalId)).emit("ptt_estado", {
+                            canal_id: canalId,
                             mensaje: "Canal liberado automáticamente por pérdida de conexión.",
                             hablando: false,
                             liberado_por: "heartbeat vencido"
