@@ -10,7 +10,9 @@ router.get("/:canal_id", async (req, res) => {
 
         const [filas] = await db.query(
             `SELECT sv.id, sv.canal_id, sv.usuario_id, u.nombre_completo AS usuario,
-                    sv.inicio, sv.fin, sv.duracion_segundos
+                    CONVERT_TZ(sv.inicio, '+00:00', '-06:00') AS inicio,
+                    CONVERT_TZ(sv.fin, '+00:00', '-06:00') AS fin,
+                    sv.duracion_segundos
              FROM sesiones_voz sv
              JOIN usuarios u ON u.id = sv.usuario_id
              WHERE sv.canal_id = ?

@@ -43,7 +43,7 @@ router.get("/listar/:canal_id", async (req, res) => {
         const limite = Math.min(parseInt(req.query.limite) || 30, 100);
 
         const [filas] = await db.query(
-            `SELECT id, canal_id, usuario, duracion_seg, creado_en
+            `SELECT id, canal_id, usuario, duracion_seg, CONVERT_TZ(creado_en, '+00:00', '-06:00') AS creado_en
              FROM mensajes_voz
              WHERE canal_id = ?
              ORDER BY creado_en DESC
