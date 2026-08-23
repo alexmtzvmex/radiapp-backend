@@ -9,7 +9,7 @@ router.get("/:canal_id", async (req, res) => {
         const limite = Math.min(parseInt(req.query.limite) || 50, 200);
 
         const [filas] = await db.query(
-            `SELECT sv.id, sv.canal_id, sv.usuario_id, u.nombre AS usuario,
+            `SELECT sv.id, sv.canal_id, sv.usuario_id, u.nombre_completo AS usuario,
                     sv.inicio, sv.fin, sv.duracion_segundos
              FROM sesiones_voz sv
              JOIN usuarios u ON u.id = sv.usuario_id
