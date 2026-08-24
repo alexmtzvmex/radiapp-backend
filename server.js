@@ -11,7 +11,7 @@ const channelRoutes = require("./routes/channels.routes");
 const mensajesRoutes = require("./routes/mensajes.routes");
 const dispositivosRoutes = require("./routes/dispositivos.routes");
 const historialRoutes = require("./routes/historial.routes");
-const { inicializarFirebase, notificarCanalOffline } = require("./config/firebase");
+const { inicializarFirebase, notificarCanalOffline, notificarLlamadaPersonal } = require("./config/firebase");
 
 const app = express();
 const server = http.createServer(app);
@@ -313,6 +313,35 @@ io.on("connection", (socket) => {
         emitirUsuariosCanal(canalId);
     });
 
+    // Llamada personal directa a alguien del canal: le vibra el celular y le
+    // suena una alerta, aunque no esté viendo la pantalla — útil si está en
+    // un lugar con ruido y no escuchó el audio normal. A diferencia de
+    // alerta_canal (que es para todos), esta es solo para una persona.
+    socket.on("llamar_usuario", (data = {}) => {
+        const canalId = String(data.canal_id || socket.data.canalId || "1");
+        const targetId = data.target_socket_id;
+        const usuario = data.usuario || socket.data.usuario || "Alguien";
+        console.log(`[llamada] de "${usuario}" hacia target_socket_id=${targetId}`);
+        if (!targetId) {
+            console.warn("[llamada] la app no mandó target_socket_id — no hay a quién llamar");
+            return;
+        }
+
+        const targetSocket = io.sockets.sockets.get(targetId);
+        if (targetSocket) {
+            targetSocket.emit("llamada_personal", { canal_id: canalId, de: usuario });
+            console.log(`[llamada] evento llamada_personal enviado al socket ${targetId}`);
+        } else {
+            console.warn(`[llamada] no encontré un socket conectado con id ${targetId}`);
+        }
+
+        // Por si no tiene la app abierta ahorita, también le mandamos push.
+        const entrada = usuariosPorCanal[canalId]?.[targetId];
+        if (entrada?.usuario_id) {
+            notificarLlamadaPersonal(entrada.usuario_id, usuario);
+        }
+    });
+
     socket.on("monitorear_canal", (data = {}) => {
         const canalId = String(data.canal_id || "1");
         socket.join(getSala(canalId));
@@ -552,6 +581,7 @@ io.on("connection", (socket) => {
     socket.on("alerta_canal", (data = {}) => {
         const canalId = String(data.canal_id || socket.data.canalId || "1");
         const usuario = data.usuario || socket.data.usuario || "Usuario";
+        console.log(`[alerta] "${usuario}" mandó alerta al canal ${canalId}`);
 
         io.to(getSala(canalId)).emit("alerta_canal", {
             canal_id: canalId,
