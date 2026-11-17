@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const socketIO = require("socket.io");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 
 const db = require("./config/db");
@@ -44,6 +45,49 @@ const PTT_MAX_MS = 120000; // 2 minutos máximo por transmisión
 const PTT_WARNING_MS = 90000; // aviso a los 90 segundos
 const HEARTBEAT_MAX_MS = 45000; // si pasan 45s sin heartbeat, se limpia
 
+// --- Seguridad del socket ---
+// Antes el servidor creía la "prioridad" y el "usuario_id" que mandaba la
+// app, así que cualquiera podía decir "soy admin (100)" y silenciar o
+// sacar gente. Ahora se leen del token (JWT) que dio el login. Si no hay
+// token o ya venció, se conecta igual (para no romper nada) pero como
+// usuario normal (prioridad 10, sin poderes de supervisor).
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    socket.data.tokenValido = false;
+
+    if (token) {
+        try {
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            socket.data.tokenValido = true;
+            socket.data.usuarioIdToken = Number(decoded.id || 0);
+            socket.data.prioridadToken = Number(decoded.prioridad || 10);
+        } catch (error) {
+            console.warn("Socket con token inválido o vencido:", error.message);
+        }
+    }
+
+    next();
+});
+
+function prioridadReal(socket) {
+    return socket.data.tokenValido ? socket.data.prioridadToken : 10;
+}
+
+function usuarioIdReal(socket, data = {}) {
+    return socket.data.tokenValido ? socket.data.usuarioIdToken : Number(data.usuario_id || 0);
+}
+
+// Cierra en la bitácora la transmisión abierta de un socket (si tiene una).
+function cerrarSesionVoz(sock, inicioMs) {
+    if (!sock || !sock.data.sesionVozId) return;
+    const duracionSeg = inicioMs ? Math.round((Date.now() - inicioMs) / 1000) : null;
+    db.query(
+        `UPDATE sesiones_voz SET fin = NOW(), duracion_segundos = ? WHERE id = ?`,
+        [duracionSeg, sock.data.sesionVozId]
+    ).catch(err => console.error("Error al cerrar sesión de voz:", err));
+    sock.data.sesionVozId = null;
+}
+
 function getSala(canalId) {
     return "canal_" + String(canalId || "1");
 }
@@ -73,6 +117,8 @@ function programarTimeoutPTT(canalId, socket, usuario) {
             if (!estado || estado.socket_id !== socket.id) return;
 
             console.log("PTT liberado por timeout:", canalId, usuario);
+
+            cerrarSesionVoz(socket, estado.inicio);
 
             estadoPorCanal[canalId] = {
                 ocupado: false,
@@ -119,14 +165,7 @@ function liberarCanalPorSocket(socket, canalId, motivo = "liberación automátic
 
     // Cierra el registro de bitácora que se abrió en ptt_inicio, con la
     // duración real de la transmisión.
-    if (socket.data.sesionVozId) {
-        const duracionSeg = estado.inicio ? Math.round((Date.now() - estado.inicio) / 1000) : null;
-        db.query(
-            `UPDATE sesiones_voz SET fin = NOW(), duracion_segundos = ? WHERE id = ?`,
-            [duracionSeg, socket.data.sesionVozId]
-        ).catch(err => console.error("Error al cerrar sesión de voz:", err));
-        socket.data.sesionVozId = null;
-    }
+    cerrarSesionVoz(socket, estado.inicio);
 
     estadoPorCanal[canalId] = {
         ocupado: false,
@@ -369,7 +408,7 @@ io.on("connection", (socket) => {
     socket.on("entrar_canal", (data = {}) => {
         const canalId = String(data.canal_id || "1");
         const usuario = data.usuario || "Usuario";
-        const usuarioId = Number(data.usuario_id || 0);
+        const usuarioId = usuarioIdReal(socket, data);
 
         quitarUsuarioDeCanales(socket);
 
@@ -381,7 +420,7 @@ io.on("connection", (socket) => {
         if (!usuariosPorCanal[canalId]) usuariosPorCanal[canalId] = {};
         if (!estadoPorCanal[canalId]) estadoPorCanal[canalId] = { ocupado: false, usuario: null, socket_id: null, inicio: null, prioridad: 0 };
 
-        const prioridad = Number(data.prioridad || 0);
+        const prioridad = prioridadReal(socket);
         socket.data.prioridad = prioridad;
 
         usuariosPorCanal[canalId][socket.id] = {
@@ -433,12 +472,24 @@ io.on("connection", (socket) => {
         if (!estadoPorCanal[canalId]) estadoPorCanal[canalId] = { ocupado: false, usuario: null, socket_id: null, inicio: null, prioridad: 0 };
         const estado = estadoPorCanal[canalId];
 
-        const prioridadSolicitante = Number(data.prioridad || socket.data.prioridad || 0);
+        // Si este mismo usuario ya tiene el canal (la app mandó ptt_inicio dos
+        // veces), solo se renueva el tiempo — antes esto creaba registros
+        // duplicados en la bitácora que se quedaban sin hora de fin.
+        if (estado.ocupado && estado.socket_id === socket.id) {
+            programarTimeoutPTT(canalId, socket, estado.usuario || usuario);
+            return;
+        }
+
+        const prioridadSolicitante = Number(socket.data.prioridad || prioridadReal(socket));
         const prioridadActual = Number(estado.prioridad || 0);
 
         if (estado.ocupado && estado.socket_id !== socket.id) {
             if (prioridadSolicitante > prioridadActual) {
                 const socketAnterior = io.sockets.sockets.get(estado.socket_id);
+
+                // A quien le quitaron el canal también se le cierra su
+                // registro en la bitácora.
+                cerrarSesionVoz(socketAnterior, estado.inicio);
 
                 if (socketAnterior) {
                     socketAnterior.emit("ptt_interrumpido", {
@@ -484,12 +535,12 @@ io.on("connection", (socket) => {
             usuario,
             socket_id: socket.id,
             inicio: Date.now(),
-            prioridad: Number(data.prioridad || socket.data.prioridad || 0)
+            prioridad: prioridadSolicitante
         };
 
         // Bitácora: registra el inicio de esta transmisión (se completa con
         // fin/duración cuando llegue ptt_fin).
-        const usuarioIdSesion = Number(data.usuario_id || socket.data.usuarioId || 0);
+        const usuarioIdSesion = Number(socket.data.usuarioId || usuarioIdReal(socket, data));
         console.log(`[bitácora] ptt_inicio de "${usuario}" — usuario_id recibido: ${usuarioIdSesion}`);
         if (usuarioIdSesion > 0) {
             db.query(
@@ -516,7 +567,7 @@ io.on("connection", (socket) => {
             ocupado: true,
             usuario,
             socket_id: socket.id,
-            prioridad: Number(data.prioridad || socket.data.prioridad || 0)
+            prioridad: prioridadSolicitante
         });
 
         io.to(getSala(canalId)).emit("ptt_estado", {
@@ -532,7 +583,7 @@ io.on("connection", (socket) => {
         // Avisa por notificación push a quien sea miembro del canal pero no
         // esté conectado ahorita (los que ya están conectados lo están
         // escuchando en vivo, no hace falta molestarlos con un push).
-        const usuarioIdQueHabla = Number(data.usuario_id || socket.data.usuarioId || 0);
+        const usuarioIdQueHabla = usuarioIdSesion;
         const idsConectados = Object.values(usuariosPorCanal[canalId] || {})
             .map(u => u.usuario_id)
             .filter(Boolean);

@@ -80,7 +80,7 @@ body::before{
 .online-state.talking{color:#fb7185;}
 .ptt-card{padding:26px 16px 22px;text-align:center;}
 .ptt-wrap{display:flex;justify-content:center;align-items:center;min-height:250px;}
-#ptt{width:210px;height:210px;border-radius:50%;border:5px solid rgba(255,255,255,.10);background:var(--red);color:white;font-size:39px;font-weight:950;letter-spacing:.5px;cursor:pointer;box-shadow:0 0 42px rgba(239,43,45,.45), inset 0 2px 0 rgba(255,255,255,.20);touch-action:none;user-select:none;transition:.15s ease;}
+#ptt{width:210px;height:210px;border-radius:50%;border:5px solid rgba(255,255,255,.10);background:var(--red);color:white;font-size:39px;font-weight:950;letter-spacing:.5px;cursor:pointer;box-shadow:0 0 42px rgba(239,43,45,.45), inset 0 2px 0 rgba(255,255,255,.20);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;transition:.15s ease;}
 #ptt:active{transform:scale(.985);}
 #ptt.talking{background:#16a34a;box-shadow:0 0 48px rgba(34,197,94,.58), inset 0 2px 0 rgba(255,255,255,.20);}
 #ptt.locked{background:#475569;box-shadow:none;cursor:not-allowed;opacity:.68;}
@@ -263,6 +263,9 @@ body::before{
 <script>
 const API_SOCKET = "https://radiapp-backend.onrender.com";
 const socket = io(API_SOCKET, {
+    // El servidor ahora lee tu rol y tu id desde este token (ya no se le cree
+    // a lo que mande la página).
+    auth: { token: localStorage.getItem("radiapp_token") || "" },
     transports:["websocket", "polling"],
     reconnection:true,
     reconnectionAttempts:Infinity,
@@ -298,14 +301,33 @@ let usuariosActualesCanal = [];
 let timerInicioWebRTC = null;
 let soyIniciadorWebRTC = false;
 let ultimoIntentoPeer = {};
+let esperandoRosterInicial = false; // true justo después de entrar al canal
+let debeIniciar = {};               // peers a los que YO les mando la oferta (los que ya estaban cuando entré)
+let vistoDesde = {};                // cuándo vimos por primera vez a cada peer
+let heartbeatTimer = null;
+const ESPERA_OFERTA_MS = 8000;      // si el otro no nos llama en 8 s, lo llamamos nosotros
 
-const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+// Mismos servidores que la app Android: STUN + TURN de respaldo para que el
+// audio pase aunque estén en redes distintas (datos móviles, red de la CFE, etc.).
+const config = { iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun.relay.metered.ca:80" },
+    { urls: "turn:global.relay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+    { urls: "turn:global.relay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+    { urls: "turn:global.relay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+] };
 const btn = document.getElementById("ptt");
 const connectBtn = document.getElementById("connectBtn");
 
 initPantalla();
 
-btn.addEventListener("pointerdown", (e) => { e.preventDefault(); setMic(true); });
+btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try{ btn.setPointerCapture(e.pointerId); }catch(err){}
+    desbloquearAudios();
+    setMic(true);
+});
+btn.addEventListener("contextmenu", (e) => e.preventDefault());
 btn.addEventListener("pointerup", (e) => { e.preventDefault(); setMic(false); });
 btn.addEventListener("pointercancel", (e) => { e.preventDefault(); setMic(false); });
 btn.addEventListener("pointerleave", (e) => { e.preventDefault(); if(pttActivo) setMic(false); });
@@ -343,11 +365,13 @@ socket.io.on("reconnect", () => {
 async function conectarRadio(){
     try{
         prepararAudio();
+        configurarSesionAudioIOS();
         await activar();
+        radioConectada = true;
         await entrar();
         connectBtn.classList.add("hidden");
-        radioConectada = true;
         iniciarWatchdog();
+        iniciarHeartbeat();
         playTone("connect");
     }catch(error){
         alert("No se pudo conectar la radio: " + error.message);
@@ -386,9 +410,11 @@ async function entrar(){
 }
 
 function emitirEntradaCanal(){
+    esperandoRosterInicial = true;
     socket.emit("entrar_canal", {
         canal_id: canal,
         usuario: getUsuario(),
+        usuario_id: getUsuarioId(),
         prioridad: getPrioridadUsuario()
     });
 }
@@ -466,8 +492,12 @@ async function crearPeer(peerId, peerName){
                 canal_id: canal,
                 usuario: getUsuario(),
                 target: peerId,
-                type: "candidate",
-                payload: event.candidate
+                type: "ice-candidate",
+                payload: {
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                }
             });
         }
     };
@@ -592,8 +622,12 @@ async function iniciarEnlaceVoz(peerId){
             El socket con ID menor inicia la oferta para ese peer.
             Si el enlace no existe o falló, se reintenta por peer.
         */
-        if(String(socket.id) > String(destino)){
-            continue;
+        // Misma regla que la app Android: el que acaba de entrar llama a los
+        // que ya estaban; a los que llegan después los esperamos (ellos nos
+        // llaman). Si en 8 s no nos llamaron, los llamamos nosotros.
+        if(!debeIniciar[destino]){
+            const desde = vistoDesde[destino] || ahora;
+            if((ahora - desde) < ESPERA_OFERTA_MS) continue;
         }
 
         ultimoIntentoPeer[destino] = ahora;
@@ -605,7 +639,7 @@ async function iniciarEnlaceVoz(peerId){
             const peer = await crearPeer(destino);
             if(!peer) continue;
 
-            const offer = await peer.createOffer({ offerToReceiveAudio: true });
+            const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);
 
             socket.emit("webrtc_signal", {
@@ -666,7 +700,12 @@ socket.on("webrtc_signal", async (data) => {
             if(pcs[peerId]){
                 const existente = pcs[peerId];
 
-                if(existente.signalingState !== "stable"){
+                if(existente.signalingState === "have-local-offer" && String(socket.id) < peerId){
+                    // Los dos nos llamamos al mismo tiempo: el de id menor
+                    // mantiene su llamada y el otro cede.
+                    log("Choque de ofertas con " + (data.usuario || peerId) + "; se mantiene la nuestra.");
+                    return;
+                }else if(existente.signalingState !== "stable"){
                     cerrarPeer(peerId);
                     await new Promise(resolve => setTimeout(resolve, 250));
                 }else if(["connected","connecting"].includes(existente.connectionState)){
@@ -733,7 +772,7 @@ socket.on("webrtc_signal", async (data) => {
             return;
         }
 
-        if(data.type === "candidate"){
+        if(data.type === "candidate" || data.type === "ice-candidate"){
             const peer = pcs[peerId];
 
             if(peer && peer.remoteDescription){
@@ -822,7 +861,16 @@ socket.on("ptt_interrumpido", (data) => {
 });
 
 socket.on("usuarios_canal", (data) => {
+    if(data.canal_id && String(data.canal_id) !== String(canal)) return;
     usuariosActualesCanal = data.usuarios || [];
+
+    const ahoraRoster = Date.now();
+    obtenerPeerIds().forEach(id => { if(!vistoDesde[id]) vistoDesde[id] = ahoraRoster; });
+
+    if(esperandoRosterInicial){
+        esperandoRosterInicial = false;
+        obtenerPeerIds().forEach(id => { debeIniciar[id] = true; });
+    }
 
     usuariosActualesCanal.forEach(u => {
         if(u.socket_id) peerNames[String(u.socket_id)] = u.usuario || "Usuario remoto";
@@ -833,6 +881,8 @@ socket.on("usuarios_canal", (data) => {
         if(!vivos.has(peerId)){
             cerrarPeer(peerId);
             delete ultimoIntentoPeer[peerId];
+            delete debeIniciar[peerId];
+            delete vistoDesde[peerId];
         }
     });
 
@@ -909,6 +959,15 @@ function initPantalla(){
 
 function getUsuario(){
     return document.getElementById("usuario").value || "Usuario";
+}
+
+function getUsuarioId(){
+    try{
+        const user = JSON.parse(localStorage.getItem("radiapp_user") || "{}");
+        return Number(user.id || 0);
+    }catch(e){
+        return 0;
+    }
 }
 
 function getPrioridadUsuario(){
@@ -1052,6 +1111,42 @@ function setMiniEstado(id, texto, ok){
     if(!el) return;
     el.innerText = texto;
     el.style.color = ok ? "#5CF2D6" : "#fb7185";
+}
+
+// El servidor saca del canal a quien no mande "heartbeat" en 45 s. La
+// página web nunca lo mandaba: por eso el iPhone se "caía" solo del canal.
+function iniciarHeartbeat(){
+    if(heartbeatTimer) clearInterval(heartbeatTimer);
+    const latido = () => {
+        if(radioConectada && estoyEnCanal && socket.connected){
+            socket.emit("heartbeat", { canal_id: canal });
+        }
+    };
+    latido();
+    heartbeatTimer = setInterval(latido, 15000);
+}
+
+// iPhone (Safari 16.4+): indica que vamos a grabar y reproducir a la vez,
+// para que el audio remoto no salga bajito mientras el micrófono está abierto.
+function configurarSesionAudioIOS(){
+    try{
+        if(navigator.audioSession){
+            navigator.audioSession.type = "play-and-record";
+        }
+    }catch(e){}
+}
+
+// iPhone bloquea el audio si no viene de un toque del usuario: en cada toque
+// del PTT re-intentamos reproducir los audios remotos que se quedaron en pausa.
+function desbloquearAudios(){
+    try{
+        if(audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+        Object.values(remoteAudios).forEach(a => {
+            if(a && a.paused && a.srcObject){
+                a.play().then(() => { a.style.display = "none"; }).catch(() => {});
+            }
+        });
+    }catch(e){}
 }
 
 function prepararAudio(){
@@ -1231,6 +1326,9 @@ function apagarRadioLocal(motivo = "logout"){
 
         try{ socket.emit("salir_canal"); }catch(e){}
         try{ if(watchdogTimer){ clearInterval(watchdogTimer); watchdogTimer = null; } }catch(e){}
+        try{ if(heartbeatTimer){ clearInterval(heartbeatTimer); heartbeatTimer = null; } }catch(e){}
+        debeIniciar = {};
+        vistoDesde = {};
         try{ if(reconnectTimer){ clearTimeout(reconnectTimer); reconnectTimer = null; } }catch(e){}
         try{ if(timerInicioWebRTC){ clearTimeout(timerInicioWebRTC); timerInicioWebRTC = null; } }catch(e){}
         try{ cerrarPC(); }catch(e){}
