@@ -76,4 +76,44 @@ async function notificarCanalOffline(canalId, usuarioQueHabla, usuarioIdQueHabla
     }
 }
 
-module.exports = { inicializarFirebase, notificarCanalOffline };
+/**
+ * Llamada personal: avisa por push SOLO a una persona (todos sus
+ * dispositivos registrados), por si no tiene la app abierta en ese momento.
+ * server.js ya la usaba, pero no existía aquí y eso tumbaba el servidor.
+ */
+async function notificarLlamadaPersonal(usuarioIdDestino, deQuien) {
+    if (!inicializado || !usuarioIdDestino) return;
+
+    try {
+        const [filas] = await db.query(
+            `SELECT DISTINCT token_push
+             FROM dispositivos_usuario
+             WHERE usuario_id = ?
+               AND activo = 1
+               AND token_push IS NOT NULL`,
+            [usuarioIdDestino]
+        );
+
+        const tokens = filas.map(f => f.token_push).filter(Boolean);
+        if (tokens.length === 0) return;
+
+        await admin.messaging().sendEachForMulticast({
+            tokens,
+            notification: {
+                title: `📞 ${deQuien || "Alguien"} te está llamando`,
+                body: "Abre RadiApp para contestar por radio"
+            },
+            data: {
+                tipo: "llamada_personal",
+                de: String(deQuien || "")
+            },
+            android: {
+                priority: "high"
+            }
+        });
+    } catch (error) {
+        console.error("Error al mandar push de llamada personal:", error);
+    }
+}
+
+module.exports = { inicializarFirebase, notificarCanalOffline, notificarLlamadaPersonal };
