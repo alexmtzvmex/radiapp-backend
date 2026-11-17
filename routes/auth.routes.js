@@ -163,7 +163,7 @@ router.post("/login", async (req, res) => {
                             : 10
             },
             process.env.JWT_SECRET,
-            { expiresIn: "7d" }
+            { expiresIn: "90d" } // 90 días: la app guarda la sesión y el servidor usa este token para saber tu rol
         );
 
         res.json({
